@@ -54,12 +54,26 @@ services:
       - ipc_socket:/tmp/ids_ipc
     command: sleep infinity
 
+  # ── Dashboard builder (node:20-alpine, runs once then exits) ──────────────
+  dashboard-build:
+    image: node:20-alpine
+    container_name: ids_dashboard_build
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+      - dashboard_dist:/app/dist
+    command: sh -c "npm ci && npm run build"
+
   # ── Inference engine (Python) ──────────────────────────────────────────────
   inference:
     build: ./inference
     container_name: ids_inference
+    depends_on:
+      dashboard-build:
+        condition: service_completed_successfully
     volumes:
       - ipc_socket:/tmp/ids_ipc
+      - dashboard_dist:/app/static:ro
     ports:
       - "8765:8765"
     networks:
@@ -67,15 +81,13 @@ services:
         ipv4_address: 172.20.0.31
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PYTHONUNBUFFERED=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
       interval: 5s
       timeout: 3s
       start_period: 15s
       retries: 3
-    # dashboard_dist volume commented out until dashboard is built
-    # volumes:
-    #   - dashboard_dist:/app/static:ro
 
 networks:
   ids_net:
@@ -90,4 +102,4 @@ volumes:
     driver_opts:
       type: tmpfs
       device: tmpfs
-  # dashboard_dist:   # uncomment when dashboard is built
+  dashboard_dist:
