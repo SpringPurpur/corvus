@@ -1,0 +1,95 @@
+services:
+
+  # ── Attack simulation targets ──────────────────────────────────────────────
+  victim_web:
+    image: nginx:alpine
+    container_name: ids_victim_web
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.10
+
+  victim_ssh:
+    image: linuxserver/openssh-server
+    container_name: ids_victim_ssh
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PASSWORD_ACCESS=true
+      - USER_PASSWORD=testpass
+      - USER_NAME=testuser
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.11
+
+  # ── Attacker ───────────────────────────────────────────────────────────────
+  attacker:
+    image: kalilinux/kali-rolling
+    container_name: ids_attacker
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.20
+    command: sleep infinity
+
+  # ── Monitor (C capture engine) ─────────────────────────────────────────────
+  monitor:
+    build:
+      context: ./capture
+      dockerfile: Dockerfile
+    container_name: ids_monitor
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      # Bind-mount source so you can edit on the host and rebuild inside the
+      # container without rebuilding the image
+      - ./capture:/app/capture
+      - ipc_socket:/tmp/ids_ipc
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.30
+    # Don't start the engine automatically — attach and build/test manually
+    command: sleep infinity
+
+  # ── Inference engine (Python) — not yet built ──────────────────────────────
+  # inference:
+  #   build: ./inference
+  #   container_name: ids_inference
+  #   depends_on:
+  #     dashboard_build:
+  #       condition: service_completed_successfully
+  #   volumes:
+  #     - dashboard_dist:/app/static:ro
+  #     - ipc_socket:/tmp/ids_ipc
+  #   ports:
+  #     - "8765:8765"
+  #   networks:
+  #     ids_net:
+  #       ipv4_address: 172.20.0.31
+  #   environment:
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     start_period: 15s
+  #     retries: 3
+
+networks:
+  ids_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  ipc_socket:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  # dashboard_dist:   # uncomment when dashboard is built
