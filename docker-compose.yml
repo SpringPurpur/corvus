@@ -44,15 +44,14 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # Host network mode: share the VM's network namespace so the capture engine
+    # can see the Docker bridge interface (br-XXXXXX) where all inter-container
+    # traffic flows. A container's own eth0 in bridge mode only receives unicast
+    # frames addressed to it — host mode bypasses this limitation.
+    network_mode: host
     volumes:
-      # Bind-mount source so you can edit on the host and rebuild inside the
-      # container without rebuilding the image
       - ./capture:/app/capture
       - ipc_socket:/tmp/ids_ipc
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.30
-    # Don't start the engine automatically — attach and build/test manually
     command: sleep infinity
 
   # ── Inference engine (Python) — not yet built ──────────────────────────────
