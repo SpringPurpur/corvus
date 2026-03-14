@@ -200,7 +200,11 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
             break
 
         ctypes.memmove(ctypes.addressof(record), data, record_size)
-        out_queue.put(_record_to_dict(record))
+        d = _record_to_dict(record)
+        log.info("Flow received: proto=%d src=%s:%d dst=%s:%d pkts=%d",
+                 d["protocol"], d["src_ip"], d["src_port"],
+                 d["dst_ip"], d["dst_port"], d["tot_pkts"])
+        out_queue.put(d)
 
     log.debug("Capture engine disconnected")
 
@@ -229,5 +233,13 @@ def run_socket_server(out_queue: queue.Queue) -> None:
         log.info("Capture engine connected")
         # Each client gets its own thread — in practice only one capture engine
         # connects at a time, but this keeps the accept loop non-blocking
-        t = threading.Thread(target=_handle_client, args=(conn, out_queue), daemon=True)
+        t = threading.Thread(target=_handle_client_safe, args=(conn, out_queue), daemon=True)
         t.start()
+
+
+def _handle_client_safe(conn: socket.socket, out_queue: queue.Queue) -> None:
+    """Wrapper that logs any unhandled exception from _handle_client."""
+    try:
+        _handle_client(conn, out_queue)
+    except Exception:
+        log.exception("_handle_client crashed unexpectedly")

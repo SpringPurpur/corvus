@@ -49,6 +49,10 @@ def _inference_worker(
             continue
 
         if alert is not None:
+            log.info("Alert: proto=%s label=%s src=%s:%s dst=%s:%s",
+                     alert["proto"], alert["verdict"]["label"],
+                     alert["src_ip"], alert["src_port"],
+                     alert["dst_ip"], alert["dst_port"])
             # Thread-safe put into the asyncio queue via the event loop
             loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
 
