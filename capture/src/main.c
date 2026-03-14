@@ -22,7 +22,7 @@
 #include "flow_types.h"
 #include "packet_parser.h"
 #include "flow_table.h"
-#include "features.h"
+#include "flow_features.h"
 #include "ipc_writer.h"
 
 /* ── Globals ─────────────────────────────────────────────────────────────── */

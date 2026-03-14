@@ -22,7 +22,7 @@ add_executable(capture_engine
     src/main.c
     src/packet_parser.c
     src/flow_table.c
-    src/features.c
+    src/flow_features.c
     src/ipc_writer.c
     asm/features_avx2.asm
 )
