@@ -2,21 +2,29 @@
 """
 launch.py — start the full Corvus IDS stack and open the dashboard.
 
-Runs docker-compose up -d, waits for the inference engine to become healthy,
-then opens the dashboard in Chrome app mode (or the default browser as fallback).
+Build order:
+  1. npm install + npm run build  (host, skipped if dist/ is up to date)
+  2. docker-compose up -d         (starts inference, monitor, targets, attacker)
+  3. wait for /health             (inference engine ready)
+  4. open dashboard in browser
 """
 
 import os
+import platform
 import subprocess
 import sys
 import time
 import urllib.request
 
-COMPOSE = os.path.join(os.path.dirname(__file__), "docker-compose.yml")
-URL     = "http://localhost:8765"
-HEALTH  = "http://localhost:8765/health"
+# On Windows, npm/npx are batch scripts (.cmd) — not directly executable
+NPM = "npm.cmd" if platform.system() == "Windows" else "npm"
 
-# Chrome executable paths to try, in preference order
+ROOT       = os.path.dirname(__file__)
+COMPOSE    = os.path.join(ROOT, "docker-compose.yml")
+DASHBOARD  = os.path.join(ROOT, "dashboard")
+URL        = "http://localhost:8765"
+HEALTH     = "http://localhost:8765/health"
+
 CHROME_CANDIDATES = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -27,8 +35,37 @@ CHROME_CANDIDATES = [
 ]
 
 
+def build_dashboard() -> None:
+    """Run npm install (if needed) then npm run build on the host.
+
+    Skips the build entirely if dist/ is newer than all source files,
+    so repeated launches are fast.
+    """
+    dist = os.path.join(DASHBOARD, "dist", "index.html")
+    src  = os.path.join(DASHBOARD, "src")
+
+    if os.path.exists(dist):
+        dist_mtime = os.path.getmtime(dist)
+        # Check if any source file is newer than the last build
+        stale = any(
+            os.path.getmtime(os.path.join(dp, f)) > dist_mtime
+            for dp, _, files in os.walk(src)
+            for f in files
+        )
+        pkg_mtime = os.path.getmtime(os.path.join(DASHBOARD, "package.json"))
+        if not stale and pkg_mtime < dist_mtime:
+            print("[launch] Dashboard dist/ is up to date — skipping build.")
+            return
+
+    print("[launch] Building dashboard...")
+    node_modules = os.path.join(DASHBOARD, "node_modules")
+    if not os.path.isdir(node_modules):
+        subprocess.run([NPM, "install"], cwd=DASHBOARD, check=True)
+    subprocess.run([NPM, "run", "build"], cwd=DASHBOARD, check=True)
+    print("[launch] Dashboard built.")
+
+
 def wait_healthy(url: str, timeout: int = 60) -> bool:
-    """Poll the health endpoint until it returns 200 or timeout expires."""
     for _ in range(timeout):
         try:
             urllib.request.urlopen(url, timeout=2)
@@ -39,7 +76,6 @@ def wait_healthy(url: str, timeout: int = 60) -> bool:
 
 
 def open_dashboard(url: str) -> None:
-    """Try to open Chrome in app mode; fall back to the default browser."""
     import webbrowser
     for chrome in CHROME_CANDIDATES:
         try:
@@ -51,10 +87,12 @@ def open_dashboard(url: str) -> None:
 
 
 if __name__ == "__main__":
+    build_dashboard()
+
     print("[launch] Starting Corvus IDS stack...")
     subprocess.run(
         ["docker-compose", "-f", COMPOSE, "up", "-d",
-         "--build",          # rebuild images if source changed
+         "--build",
          "--remove-orphans"],
         check=True,
     )
