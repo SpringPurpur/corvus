@@ -18,12 +18,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app/capture
 
-# Copy source into image — in docker-compose the source is bind-mounted,
-# so this layer is only used for standalone image builds
-COPY . .
-
-RUN mkdir -p build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Debug && \
-    make -j$(nproc)
-
-CMD ["./build/capture_engine", "-i", "eth0"]
+# Source is bind-mounted by docker-compose at /app/capture.
+# Build manually inside the container:
+#   cd /app/capture && mkdir -p build && cd build && cmake .. && make -j$(nproc)
+CMD ["sleep", "infinity"]
