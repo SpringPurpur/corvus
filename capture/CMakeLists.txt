@@ -8,11 +8,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 enable_language(ASM_NASM)
 set(CMAKE_ASM_NASM_FLAGS "-f elf64")
 
-# Strict warnings — zero warnings policy
-add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
-
-# AVX2 for C code (feature finalisation fallback path)
-add_compile_options(-mavx2)
+# Strict warnings and AVX2 — C only; NASM does not accept GCC flags
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wall>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wextra>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wpedantic>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-mavx2>)
 
 # libpcap
 find_library(PCAP_LIB pcap REQUIRED)
