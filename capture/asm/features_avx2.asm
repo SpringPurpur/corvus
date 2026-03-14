@@ -122,7 +122,7 @@ compute_pkt_len_stats_avx2:
 
     vpxor   ymm9, ymm9, ymm9    ; float accumulator (8 × float lanes)
     mov     eax, r13d
-    shr     eax, 8              ; iterations = count / 8
+    shr     eax, 3              ; iterations = count / 8 (8 uint16 per xmm load)
     mov     rbx, r12            ; reset pointer
 
 .sq_loop:
@@ -329,12 +329,19 @@ count_tcp_flags_avx2:
     test    ecx, ecx
     jz      .flag_done
     movzx   r12d, byte [rdi]
-    add     eax,  r12d & 1
-    add     edx,  (r12d >> 1) & 1
-    add     r10d, (r12d >> 2) & 1
-    add     r11d, (r12d >> 3) & 1
-    add     esi,  (r12d >> 4) & 1
-    add     r13d, (r12d >> 5) & 1
+    ; bt sets CF to the specified bit; adc reg,0 adds CF to the counter
+    bt      r12d, 0
+    adc     eax,  0          ; FIN
+    bt      r12d, 1
+    adc     edx,  0          ; SYN
+    bt      r12d, 2
+    adc     r10d, 0          ; RST
+    bt      r12d, 3
+    adc     r11d, 0          ; PSH
+    bt      r12d, 4
+    adc     esi,  0          ; ACK
+    bt      r12d, 5
+    adc     r13d, 0          ; URG
     inc     rdi
     dec     ecx
     jmp     .flag_scalar
@@ -405,3 +412,8 @@ count_tcp_flags_avx2:
     pop     rbx
     vzeroupper
     ret
+
+; Mark stack as non-executable — required by the GNU toolchain for ELF objects
+; that don't otherwise declare .note.GNU-stack. Without this the linker assumes
+; the stack needs to be executable, which triggers a deprecation warning.
+section .note.GNU-stack noalloc noexec nowrite progbits
