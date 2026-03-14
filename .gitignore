@@ -1,0 +1,28 @@
+# Build artifacts
+capture/build/
+capture/cmake-build-*/
+*.o *.a *.so
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+inference/.env
+
+# Models — trained externally, not stored in git
+inference/models/*.pkl
+inference/models/*.joblib
+
+# Dashboard build output — regenerated, not stored
+dashboard/dist/
+dashboard/node_modules/
+
+# Docker / runtime
+.docker/
+*.sock
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
