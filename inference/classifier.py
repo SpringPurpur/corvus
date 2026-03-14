@@ -75,15 +75,29 @@ class Classifier:
         self._tcp_explainer = None
         self._udp_explainer = None
 
-        # IsolationForest — trained online on the first flows seen.
-        # A fresh instance is used until enough data arrives to fit it.
+        # IsolationForest — prefer a pre-fitted model from disk; fall back to
+        # fitting on the first 1000 flows seen. The fallback has a cold-start
+        # risk (early attacks look "normal") but is acceptable for demo use.
         self._iso: IsolationForest | None = None
         self._iso_buffer: list[list[float]] = []
         self._iso_fitted = False
-        self._ISO_FIT_THRESHOLD = 100   # fit after this many flows
+        self._ISO_FIT_THRESHOLD = 1000
+
+        self._load_iso()
 
         if not anomaly_only:
             self._load_models()
+
+    def _load_iso(self) -> None:
+        iso_path = MODELS_DIR / "isoforest.pkl"
+        if iso_path.exists():
+            with open(iso_path, "rb") as f:
+                self._iso = pickle.load(f)
+            self._iso_fitted = True
+            log.info("IsolationForest loaded from %s", iso_path)
+        else:
+            log.info("No isoforest.pkl found — will fit on first %d flows",
+                     self._ISO_FIT_THRESHOLD)
 
     def _load_models(self) -> None:
         log.info("Loading TCP model...")

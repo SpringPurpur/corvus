@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+msgpack
+lightgbm
+scikit-learn
+shap
+numpy
+anthropic
