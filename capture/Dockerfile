@@ -20,7 +20,6 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app/capture
 
-# Source is bind-mounted by docker-compose at /app/capture.
-# Build manually inside the container:
-#   cd /app/capture && mkdir -p build && cd build && cmake .. && make -j$(nproc)
-CMD ["sleep", "infinity"]
+# start.sh is bind-mounted alongside the source at /app/capture/start.sh.
+# It builds the engine on first run (if no binary exists) then starts capture.
+CMD ["/bin/bash", "/app/capture/start.sh"]
