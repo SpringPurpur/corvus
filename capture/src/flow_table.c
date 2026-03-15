@@ -176,8 +176,14 @@ void flow_table_expire(flow_table_t *t, uint64_t now_ns,
         if (t->slots[i].complete)
             continue;
 
-        uint64_t idle = now_ns - t->slots[i].last_pkt_ns;
+        uint64_t idle   = now_ns - t->slots[i].last_pkt_ns;
+        uint64_t active = now_ns - t->slots[i].first_pkt_ns;
+
         if (idle >= FLOW_IDLE_TIMEOUT_NS)
+            cb(&t->slots[i], ctx);
+        else if (t->slots[i].key.protocol == 17 && active >= FLOW_ACTIVE_TIMEOUT_NS)
+            // UDP active timeout — emit the flow while the flood is still running
+            // rather than waiting for the 120s idle timeout after it stops
             cb(&t->slots[i], ctx);
     }
 }

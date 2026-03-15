@@ -17,7 +17,13 @@
 
 // Flows with no packets for this many nanoseconds are expired.
 // 120s matches CICFlowMeter's default idle timeout exactly.
-#define FLOW_IDLE_TIMEOUT_NS  120000000000ULL
+#define FLOW_IDLE_TIMEOUT_NS    120000000000ULL
+
+// UDP flows have no FIN/RST — without an active timeout a sustained flood
+// would accumulate silently for 120s after the last packet. 30s catches
+// floods that are still in progress and emits a partial flow for detection.
+// TCP flows are not subject to this — FIN/RST handles them correctly.
+#define FLOW_ACTIVE_TIMEOUT_NS   30000000000ULL
 
 /* Opaque table — allocate statically in main.c, pass pointer everywhere. */
 typedef struct flow_table flow_table_t;

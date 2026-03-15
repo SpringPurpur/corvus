@@ -104,6 +104,19 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
     int fwd = is_forward(flow, &pkt);
     features_update(flow, &pkt, fwd);
 
+    // ── Buffer-fill completion ───────────────────────────────────────────
+    // When the packet length buffer reaches capacity (512 entries) the flow
+    // has enough data for accurate AVX2 statistics — emit immediately.
+    // This catches high-rate floods that would otherwise wait for a timeout.
+    // The 512-packet sample is representative: floods are uniform so std≈0
+    // is a correct feature value, not an artefact of truncation.
+    if (!flow->complete && flow->pkt_len_buf_count >= 512) {
+        features_finalise(flow);
+        ipc_writer_enqueue(flow);
+        flow_table_remove(&g_table, flow);
+        return;
+    }
+
     // ── Flow completion detection ────────────────────────────────────────
     // Check for RST first (immediate) then FIN (include the FIN packet)
     if (pkt.protocol == 6) {
