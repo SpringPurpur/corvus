@@ -52,28 +52,18 @@ services:
     volumes:
       - ./capture:/app/capture
       - ipc_socket:/tmp/ids_ipc
-    command: sleep infinity
-
-  # ── Dashboard builder (node:20-alpine, runs once then exits) ──────────────
-  dashboard-build:
-    image: node:20-alpine
-    container_name: ids_dashboard_build
-    working_dir: /app
-    volumes:
-      - ./dashboard:/app
-      - dashboard_dist:/app/dist
-    command: sh -c "npm ci && npm run build"
+    depends_on:
+      inference:
+        condition: service_healthy
 
   # ── Inference engine (Python) ──────────────────────────────────────────────
   inference:
     build: ./inference
     container_name: ids_inference
-    depends_on:
-      dashboard-build:
-        condition: service_completed_successfully
     volumes:
       - ipc_socket:/tmp/ids_ipc
-      - dashboard_dist:/app/static:ro
+      # Dashboard dist/ built on host by launch.py before docker-compose runs
+      - ./dashboard/dist:/app/static:ro
     ports:
       - "8765:8765"
     networks:
@@ -102,4 +92,3 @@ volumes:
     driver_opts:
       type: tmpfs
       device: tmpfs
-  dashboard_dist:

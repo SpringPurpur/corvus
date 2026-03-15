@@ -31,19 +31,19 @@ MODELS_DIR = Path(__file__).parent / "models"
 # ── Severity maps ─────────────────────────────────────────────────────────────
 
 TCP_SEVERITY: dict[str, str] = {
-    "Benign":            "INFO",
-    "Bot":               "HIGH",
-    "BruteForce-Web":    "HIGH",
-    "BruteForce-XSS":   "HIGH",
-    "DoS-GoldenEye":    "CRITICAL",
-    "DoS-Hulk":         "CRITICAL",
-    "DoS-SlowHTTPTest": "CRITICAL",
-    "DoS-Slowloris":    "CRITICAL",
-    "DDoS-LOIC-HTTP":   "CRITICAL",
-    "FTP-Patator":      "HIGH",
-    "Infiltration":     "CRITICAL",
-    "SSH-Patator":      "HIGH",
-    "Web-Attack-SqlInj":"CRITICAL",
+    "Benign":                  "INFO",
+    "Bot":                     "HIGH",
+    "Brute Force -Web":        "HIGH",
+    "Brute Force -XSS":        "HIGH",
+    "DDOS attack-HOIC":        "CRITICAL",
+    "DoS attacks-GoldenEye":   "CRITICAL",
+    "DoS attacks-Hulk":        "CRITICAL",
+    "DoS attacks-SlowHTTPTest":"CRITICAL",
+    "DoS attacks-Slowloris":   "CRITICAL",
+    "FTP-BruteForce":          "HIGH",
+    "Infilteration":           "CRITICAL",
+    "SQL Injection":           "CRITICAL",
+    "SSH-Bruteforce":          "HIGH",
 }
 
 UDP_SEVERITY: dict[str, str] = {
@@ -68,12 +68,10 @@ class Classifier:
     def __init__(self, anomaly_only: bool = False) -> None:
         self.anomaly_only = anomaly_only
 
-        self._tcp_model = None
-        self._udp_model = None
-        self._tcp_classes: list[str] = []
-        self._udp_classes: list[str] = []
-        self._tcp_explainer = None
-        self._udp_explainer = None
+        self._tcp_model     = None
+        self._tcp_label_map: dict[int, str] = {}
+        self._tcp_classes:   list[int] = []
+        self._tcp_explainer  = None
 
         # IsolationForest — prefer a pre-fitted model from disk; fall back to
         # fitting on the first 1000 flows seen. The fallback has a cold-start
@@ -101,19 +99,18 @@ class Classifier:
 
     def _load_models(self) -> None:
         log.info("Loading TCP model...")
-        self._tcp_model = _load_pkl("lightgbm_tcp.pkl")
-        self._tcp_classes = list(self._tcp_model.classes_)
-        log.info("TCP classes: %s", self._tcp_classes)
+        tcp_bundle = _load_pkl("extra_trees_tcp.pkl")
+        self._tcp_model     = tcp_bundle["model"]
+        self._tcp_label_map = tcp_bundle["label_map"]   # {original_int: label_str}
+        # bundle["classes"] holds the original class IDs in the same order as
+        # predict_proba columns — the model re-encodes them to 0-based internally.
+        self._tcp_classes   = tcp_bundle["classes"]     # [0,1,2,3,4,6,7,8,9,10,11,12,13]
+        log.info("TCP classes: %s", [self._tcp_label_map[c] for c in self._tcp_classes])
 
-        log.info("Loading UDP model...")
-        self._udp_model = _load_pkl("extra_trees_udp.pkl")
-        self._udp_classes = list(self._udp_model.classes_)
-        log.info("UDP classes: %s", self._udp_classes)
-
-        # SHAP TreeExplainer — one per model
-        self._tcp_explainer = shap.TreeExplainer(self._tcp_model)
-        self._udp_explainer = shap.TreeExplainer(self._udp_model)
-        log.info("Models loaded ✓")
+        # SHAP on the classifier step inside the Pipeline, not the Pipeline itself
+        clf_step = self._tcp_model.named_steps["clf"]
+        self._tcp_explainer = shap.TreeExplainer(clf_step)
+        log.info("TCP model loaded ✓  (UDP unsupervised component: pending)")
 
     # ── IsolationForest ───────────────────────────────────────────────────────
 
@@ -198,34 +195,32 @@ class Classifier:
         elif proto == 6:   # TCP
             vec = extract_tcp(flow)
             proba = self._tcp_model.predict_proba(vec)[0]
-            label_id = int(np.argmax(proba))
-            label = str(self._tcp_classes[label_id])
-            confidence = float(proba[label_id])
-            severity = TCP_SEVERITY.get(label, "HIGH")
+            best_idx = int(np.argmax(proba))
+            # classes_ contains the original integer class IDs, not 0-based indices.
+            # Use label_map to convert to the human-readable label string.
+            int_class  = self._tcp_classes[best_idx]
+            label      = self._tcp_label_map[int_class]
+            confidence = float(proba[best_idx])
+            severity   = TCP_SEVERITY.get(label, "HIGH")
             verdict = {
                 "label":      label,
-                "label_id":   label_id,
+                "label_id":   int_class,
                 "confidence": confidence,
                 "severity":   severity,
             }
-            shap_triples = self._top3_shap(self._tcp_explainer, vec,
+            # SHAP runs on the raw feature vector before the Pipeline scaler
+            vec_for_shap = self._tcp_model.named_steps["scaler"].transform(vec)
+            shap_triples = self._top3_shap(self._tcp_explainer, vec_for_shap,
                                            TCP_FEATURE_NAMES)
 
-        elif proto == 17:  # UDP
-            vec = extract_udp(flow)
-            proba = self._udp_model.predict_proba(vec)[0]
-            label_id = int(np.argmax(proba))
-            label = str(self._udp_classes[label_id])
-            confidence = float(proba[label_id])
-            severity = UDP_SEVERITY.get(label, "HIGH")
+        elif proto == 17:  # UDP — unsupervised component pending
             verdict = {
-                "label":      label,
-                "label_id":   label_id,
-                "confidence": confidence,
-                "severity":   severity,
+                "label":      "Unknown",
+                "label_id":   -1,
+                "confidence": 0.0,
+                "severity":   "INFO",
             }
-            shap_triples = self._top3_shap(self._udp_explainer, vec,
-                                           UDP_FEATURE_NAMES)
+            shap_triples = []
 
         else:
             log.debug("Unsupported protocol %d — skipping flow", proto)
