@@ -23,7 +23,9 @@ services:
 
   # ── Attacker ───────────────────────────────────────────────────────────────
   attacker:
-    image: kalilinux/kali-rolling
+    build:
+      context: ./attacker
+      dockerfile: Dockerfile
     container_name: ids_attacker
     stdin_open: true
     tty: true
@@ -33,7 +35,6 @@ services:
     networks:
       ids_net:
         ipv4_address: 172.20.0.20
-    command: sleep infinity
 
   # ── Monitor (C capture engine) ─────────────────────────────────────────────
   monitor:
