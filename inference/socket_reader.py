@@ -4,7 +4,7 @@
 # The C engine is the client; we own the socket file. Wire format:
 #   [uint32_t payload_len = sizeof(flow_record_t)][flow_record_t bytes]
 #
-# The ctypes struct must match the C layout exactly — sizeof must equal 6336.
+# The ctypes struct must match the C layout exactly — sizeof must equal 6352.
 # If it doesn't, startup fails loudly rather than silently producing wrong features.
 
 import ctypes
@@ -19,7 +19,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 SOCKET_PATH = "/tmp/ids_ipc/flows.sock"
-EXPECTED_SIZEOF = 6336
+EXPECTED_SIZEOF = 6352
 
 
 # ── ctypes mirror of flow_key_t ──────────────────────────────────────────────
@@ -82,6 +82,11 @@ class FlowRecord(ctypes.Structure):
         ("urg_flag_cnt",       ctypes.c_uint32),
         ("bwd_pkt_len_mean",   ctypes.c_float),
 
+        # derived features — computed at finalisation, used by IsolationForest models
+        ("fwd_pkts_per_sec",   ctypes.c_float),
+        ("syn_flag_ratio",     ctypes.c_float),
+        ("psh_flag_ratio",     ctypes.c_float),
+
         # accumulation buffers (internal — not used for inference)
         ("pkt_len_buf",            ctypes.c_uint16 * 512),
         ("pkt_len_buf_count",      ctypes.c_uint32),
@@ -104,7 +109,7 @@ class FlowRecord(ctypes.Structure):
         ("complete",           ctypes.c_uint8),
         ("fwd_is_lower_ip",    ctypes.c_uint8),
         ("init_win_captured",  ctypes.c_uint8),
-        ("_pad8",              ctypes.c_uint8 * 5),
+        ("_pad8",              ctypes.c_uint8 * 9),   # increased 5→9 to match C struct
     ]
 
 

@@ -58,6 +58,15 @@ typedef struct {
     uint32_t   urg_flag_cnt;
     float      bwd_pkt_len_mean;
 
+    // ── derived features (computed at finalisation, used by both IF models) ───
+    // Selected on the basis of established network measurement literature:
+    //   fwd_pkts_per_sec — primary flood rate indicator (Mirkovic & Reiher, 2004)
+    //   syn_flag_ratio   — SYN flood signature; normalised to be duration-independent
+    //   psh_flag_ratio   — data transfer pattern; floods have near-zero PSH ratio
+    float      fwd_pkts_per_sec;
+    float      syn_flag_ratio;     // syn_flag_cnt / tot_pkts
+    float      psh_flag_ratio;     // psh_flag_cnt / tot_pkts
+
     // ── accumulation buffers (internal — not consumed by Python) ─────────────
     // Capped at buffer size; values beyond the cap are silently dropped.
     // Under flood conditions this is expected, not an error.
@@ -78,5 +87,7 @@ typedef struct {
     // fwd_is_lower_ip=1 means the lower-IP side sent the first packet.
     uint8_t    fwd_is_lower_ip;
     uint8_t    init_win_captured;      // set to 1 after first fwd SYN window recorded
-    uint8_t    _pad[5];
+    uint8_t    _pad[9];   // increased from 5 → 9 to keep sizeof 8-byte aligned
+                          // after adding 3 float fields (12 bytes) above.
+                          // sizeof(flow_record_t) = 6352. Update Python ctypes to match.
 } flow_record_t;

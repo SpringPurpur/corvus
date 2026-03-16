@@ -195,5 +195,19 @@ void features_finalise(flow_record_t *flow)
     if (flow->fwd_seg_size_min == UINT32_MAX)
         flow->fwd_seg_size_min = 0;
 
+    // ── Derived features for IsolationForest models ───────────────────────
+    // Normalised ratios are duration/count-independent, matching RFC 7011
+    // recommendations for flow statistics. Raw counts vary with flow length;
+    // ratios do not — a 10-packet SYN flood has the same syn_flag_ratio as
+    // a 10000-packet SYN flood.
+    flow->fwd_pkts_per_sec = (flow->flow_duration_s > 0.0f)
+        ? (float)flow->tot_fwd_pkts / flow->flow_duration_s : 0.0f;
+
+    flow->syn_flag_ratio = (flow->tot_pkts > 0)
+        ? (float)flow->syn_flag_cnt / (float)flow->tot_pkts : 0.0f;
+
+    flow->psh_flag_ratio = (flow->tot_pkts > 0)
+        ? (float)flow->psh_flag_cnt / (float)flow->tot_pkts : 0.0f;
+
     flow->complete = 1;
 }
