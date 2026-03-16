@@ -19,7 +19,10 @@
 #include "flow_types.h"
 
 #define IPC_SOCKET_PATH   "/tmp/ids_ipc/flows.sock"
-#define IPC_RING_CAPACITY 1024
+// 8192 slots × 6336 bytes = ~50 MB — large enough to absorb bursts during
+// flood attacks without dropping flows before the inference engine drains it.
+// Must be a power of 2 (used as bitmask index).
+#define IPC_RING_CAPACITY 8192
 
 /*
  * Initialise the IPC writer and start the background sender thread.
