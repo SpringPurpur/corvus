@@ -181,9 +181,11 @@ void flow_table_expire(flow_table_t *t, uint64_t now_ns,
 
         if (idle >= FLOW_IDLE_TIMEOUT_NS)
             cb(&t->slots[i], ctx);
-        else if (t->slots[i].key.protocol == 17 && active >= FLOW_ACTIVE_TIMEOUT_NS)
-            // UDP active timeout — emit the flow while the flood is still running
-            // rather than waiting for the 120s idle timeout after it stops
+        else if (active >= FLOW_ACTIVE_TIMEOUT_NS)
+            // Active timeout for all protocols — bounds detection latency to 30s
+            // regardless of whether the flow sends FIN/RST or not. TCP flows that
+            // never complete cleanly (half-open, dropped connections, slow attacks)
+            // are emitted as partial windows; features remain valid on partial flows.
             cb(&t->slots[i], ctx);
     }
 }
