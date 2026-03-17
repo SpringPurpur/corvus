@@ -4,10 +4,19 @@ export type ShapTriple = [name: string, value: number, score: number]
 
 export interface Verdict {
   label: string
-  label_id: number
+  label_id?: number
   confidence: number
   severity: Severity
 }
+
+export interface OifScores {
+  fast: number
+  medium: number
+  slow: number
+  composite: number
+}
+
+export type AttributionTriple = [feature: string, score: number, value: number, baseline: number]
 
 export interface Alert {
   flow_id: string
@@ -20,6 +29,8 @@ export interface Alert {
   duration: number
   fwd_pkts: number
   verdict: Verdict
+  scores?: OifScores
+  attribution?: AttributionTriple[]
   shap: ShapTriple[]
   anomaly: number
 }
@@ -27,7 +38,7 @@ export interface Alert {
 // WebSocket downstream message union
 export type WsMessage =
   | { type: 'alert'; data: Alert }
-  | { type: 'status'; capture: boolean; models: boolean }
+  | { type: 'status'; capture: boolean; models: boolean; baselining?: boolean; progress?: number; protocol?: string }
   | { type: 'llm_response'; request_id: string; text: string }
 
 // WebSocket upstream messages

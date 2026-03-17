@@ -10,6 +10,8 @@ interface AlertState {
   udp: Alert[]
   captureUp: boolean
   modelsLoaded: boolean
+  baselining: boolean
+  baselineProgress: number
 }
 
 interface UseAlertsReturn extends AlertState {
@@ -22,6 +24,8 @@ export function useAlerts(): UseAlertsReturn {
     udp: [],
     captureUp: false,
     modelsLoaded: false,
+    baselining: true,
+    baselineProgress: 0,
   })
 
   // Track per-minute alert count using a sliding timestamp window
@@ -29,7 +33,13 @@ export function useAlerts(): UseAlertsReturn {
 
   const handleMessage = useCallback((msg: WsMessage) => {
     if (msg.type === 'status') {
-      setState((s) => ({ ...s, captureUp: msg.capture, modelsLoaded: msg.models }))
+      setState((s) => ({
+        ...s,
+        captureUp: msg.capture ?? s.captureUp,
+        modelsLoaded: msg.models ?? s.modelsLoaded,
+        baselining: msg.baselining ?? false,
+        baselineProgress: msg.progress ?? s.baselineProgress,
+      }))
       return
     }
     if (msg.type !== 'alert') return
@@ -44,7 +54,8 @@ export function useAlerts(): UseAlertsReturn {
       const next = prev.length >= RING_SIZE
         ? [...prev.slice(1), alert]
         : [...prev, alert]
-      return { ...s, [key]: next }
+      // Detection active once first alert arrives
+      return { ...s, [key]: next, baselining: false }
     })
   }, [])
 

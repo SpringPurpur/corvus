@@ -16,7 +16,7 @@ export default function App() {
   const [selected, setSelected] = useState<Alert | null>(null)
   const [, forceRender] = useState(0)
 
-  const { tcp, udp, captureUp, modelsLoaded, handleMessage } = useAlerts()
+  const { tcp, udp, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage } = useAlerts()
 
   const onMessage = (msg: WsMessage) => {
     if (msg.type === 'llm_response') {
@@ -39,6 +39,8 @@ export default function App() {
         modelsLoaded={modelsLoaded}
         tcpCount={tcp.length}
         udpCount={udp.length}
+        baselining={baselining}
+        baselineProgress={baselineProgress}
       />
 
       {/* Protocol tab bar */}
