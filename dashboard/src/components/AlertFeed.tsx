@@ -37,7 +37,7 @@ export function AlertFeed({ alerts, selected, onSelect }: Props) {
           <tr className="text-muted-foreground">
             <th className="text-left px-3 py-2 font-medium">Time</th>
             <th className="text-left px-3 py-2 font-medium">Severity</th>
-            <th className="text-left px-3 py-2 font-medium">Label</th>
+            <th className="text-left px-3 py-2 font-medium">Anomaly</th>
             <th className="text-left px-3 py-2 font-medium">Source</th>
             <th className="text-left px-3 py-2 font-medium">Destination</th>
             <th className="text-right px-3 py-2 font-medium">Pkts</th>

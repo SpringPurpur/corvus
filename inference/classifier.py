@@ -213,10 +213,7 @@ class Classifier:
                 "confidence": result["scores"]["composite"],
             },
             "scores":      result["scores"],       # fast/medium/slow/composite
-            "attribution": result["attribution"],  # top-3 path attribution
-            # Legacy supervised fields — empty until classifier is retrained
-            "shap":        [],
-            "anomaly":     result["scores"]["composite"],
+            "attribution": result["attribution"],  # top-3 OIF path-depth attribution
         }
 
     # ── Legacy supervised TCP path (not called — feature set mismatch) ────────

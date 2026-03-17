@@ -1,11 +1,8 @@
 export type Severity = 'INFO' | 'HIGH' | 'CRITICAL'
 
-export type ShapTriple = [name: string, value: number, score: number]
-
 export interface Verdict {
-  label: string
-  label_id?: number
-  confidence: number
+  label: string       // anomaly severity tier: INFO / HIGH / CRITICAL
+  confidence: number  // OIF composite score 0-1
   severity: Severity
 }
 
@@ -16,23 +13,26 @@ export interface OifScores {
   composite: number
 }
 
-export type AttributionTriple = [feature: string, score: number, value: number, baseline: number]
+export interface AttributionEntry {
+  feature:  string
+  score:    number                          // relative contribution 0-1
+  value:    number                          // raw flow value
+  baseline: { median: number; iqr: number } // from RobustScaler fit on baseline corpus
+}
 
 export interface Alert {
-  flow_id: string
-  ts: number
-  src_ip: string
-  dst_ip: string
-  src_port: number
-  dst_port: number
-  proto: 'TCP' | 'UDP'
-  duration: number
-  fwd_pkts: number
-  verdict: Verdict
-  scores?: OifScores
-  attribution?: AttributionTriple[]
-  shap: ShapTriple[]
-  anomaly: number
+  flow_id:     string
+  ts:          number
+  src_ip:      string
+  dst_ip:      string
+  src_port:    number
+  dst_port:    number
+  proto:       'TCP' | 'UDP'
+  duration:    number
+  fwd_pkts:    number
+  verdict:     Verdict
+  scores:      OifScores
+  attribution: AttributionEntry[]
 }
 
 // WebSocket downstream message union

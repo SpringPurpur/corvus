@@ -176,6 +176,4 @@ def _row_to_alert(row: tuple) -> dict:
             "composite": comp,
         },
         "attribution": json.loads(attribution_json or "[]"),
-        "shap":        json.loads(shap_json or "[]"),
-        "anomaly":     comp or 0.0,
     }

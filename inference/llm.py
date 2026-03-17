@@ -27,16 +27,19 @@ def get_client() -> anthropic.AsyncAnthropic:
 
 
 async def explain(alert: dict) -> str:
-    """2-3 sentence explanation of an alert, referencing top SHAP features."""
+    """2-3 sentence explanation of an alert, referencing top path-attribution features."""
     client = get_client()
     response = await client.messages.create(
         model=MODEL,
         max_tokens=256,
         system=(
-            "You are a concise security analyst assistant. "
-            "Explain the alert in 2-3 sentences, referencing the top SHAP features "
-            "to justify why the traffic was flagged. Be specific about what the "
-            "feature values indicate."
+            "You are a concise network security analyst assistant. "
+            "The detection system uses an Online Isolation Forest — flows are scored "
+            "by how quickly they are isolated from the baseline of normal traffic. "
+            "Explain the alert in 2-3 sentences, referencing the top path-attribution "
+            "features (the features that isolated this flow at the shallowest tree depth) "
+            "and comparing their values to the provided baseline median. "
+            "Be specific about what the deviations indicate."
         ),
         messages=[{"role": "user", "content": json.dumps(alert)}],
     )
@@ -47,22 +50,20 @@ async def parse_feedback(alert: dict, analyst_text: str) -> dict:
     """Parse analyst free-text feedback into a structured correction dict.
 
     Returns {"corrected_label": str|None, "dismiss": bool, "reason": str}.
+    corrected_label is one of INFO / HIGH / CRITICAL, or null if no correction.
     Response must be valid JSON only — any other output is a failure.
     """
-    valid_labels = (
-        "Benign Bot BruteForce-Web BruteForce-XSS DoS-GoldenEye DoS-Hulk "
-        "DoS-SlowHTTPTest DoS-Slowloris DDoS-LOIC-HTTP FTP-Patator "
-        "Infiltration SSH-Patator Web-Attack-SqlInj "
-        "DDoS-LOIC-UDP DDoS-HOIC"
-    )
     client = get_client()
     response = await client.messages.create(
         model=MODEL,
         max_tokens=128,
         system=(
-            f"You are a structured data extractor. Valid labels are: {valid_labels}. "
+            "You are a structured data extractor. "
+            "The IDS uses anomaly-based detection with three severity levels: INFO, HIGH, CRITICAL. "
             "Return ONLY a JSON object with keys: "
-            "corrected_label (string or null), dismiss (bool), reason (string). "
+            "corrected_label (one of INFO/HIGH/CRITICAL, or null if no correction needed), "
+            "dismiss (bool — true if analyst says this is benign/noise), "
+            "reason (string — brief reason). "
             "No explanation, no markdown, just the JSON object."
         ),
         messages=[{
