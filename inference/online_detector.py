@@ -18,9 +18,11 @@
 
 import logging
 import math
+import pickle
 import random
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -383,10 +385,16 @@ class MultiWindowOIF:
     _THRESHOLD_CRITICAL = 0.75
     _THRESHOLD_HIGH     = 0.60
 
+    # Save to disk every N trained flows so a mid-session restart loses at
+    # most this many flows' worth of learned structure.
+    _SAVE_INTERVAL = 200
+
     def __init__(self, feature_names: list[str], protocol: str,
-                 baseline_flows: int | None = None) -> None:
+                 baseline_flows: int | None = None,
+                 save_path: str | Path | None = None) -> None:
         self.feature_names = feature_names
         self.protocol      = protocol
+        self._save_path    = Path(save_path) if save_path else None
 
         self._models: list[OnlineIsolationForest] = [
             OnlineIsolationForest(
@@ -442,6 +450,36 @@ class MultiWindowOIF:
         self._baseline_buffer.clear()
         log.info("[%s OIF] Baseline complete on %d flows — detection active",
                  self.protocol, self.BASELINE_FLOWS)
+        self.save()
+
+    # ── persistence ───────────────────────────────────────────────────────────
+
+    def save(self) -> None:
+        """Pickle the detector to _save_path. No-op if no path was set."""
+        if self._save_path is None:
+            return
+        try:
+            self._save_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._save_path.with_suffix(".pkl.tmp")
+            with open(tmp, "wb") as f:
+                pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            tmp.replace(self._save_path)
+            log.debug("[%s OIF] Saved to %s (%d trained)",
+                      self.protocol, self._save_path, self._n_trained)
+        except Exception:
+            log.warning("[%s OIF] Failed to save model", self.protocol, exc_info=True)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "MultiWindowOIF":
+        """Load a pickled detector. Raises on any error — caller handles fallback."""
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
+        if not isinstance(obj, cls):
+            raise TypeError(f"Expected MultiWindowOIF, got {type(obj)}")
+        return obj
+
+    def _compatible_with(self, feature_names: list[str]) -> bool:
+        return self.feature_names == feature_names
 
     # ── inference ─────────────────────────────────────────────────────────────
 
@@ -475,6 +513,8 @@ class MultiWindowOIF:
             for model in self._models:
                 model.learn_one(x_dict)
             self._n_trained += 1
+            if self._n_trained % self._SAVE_INTERVAL == 0:
+                self.save()
 
         return window_scores, attribution
 
@@ -537,10 +577,42 @@ class MultiWindowOIF:
 # ── Module-level detector instances ───────────────────────────────────────────
 #
 # One per protocol, shared across inference calls from the single worker thread.
+# On startup, try to load a previously saved model so baselining is skipped.
+# If the saved file is absent, corrupt, or was built on a different feature set,
+# fall back to a fresh instance silently.
 
-tcp_detector = MultiWindowOIF(TCP_IF_FEATURE_NAMES, protocol="TCP")
-udp_detector = MultiWindowOIF(UDP_IF_FEATURE_NAMES, protocol="UDP",
-                               baseline_flows=1024)  # medium window size
+_MODEL_DIR = Path("/app/models")
+
+
+def _load_or_create(
+    feature_names: list[str],
+    protocol: str,
+    filename: str,
+    baseline_flows: int | None = None,
+) -> "MultiWindowOIF":
+    path = _MODEL_DIR / filename
+    if path.exists():
+        try:
+            detector = MultiWindowOIF.load(path)
+            if detector._compatible_with(feature_names):
+                # Overwrite the pickled path with the current one — in case
+                # the models dir differs across environments.
+                detector._save_path = path
+                log.info("[%s OIF] Loaded saved model from %s (%d trained, baseline=%s)",
+                         protocol, path, detector._n_trained,
+                         "complete" if detector.is_ready else "incomplete")
+                return detector
+            log.warning("[%s OIF] Saved model has different feature set — starting fresh", protocol)
+        except Exception:
+            log.warning("[%s OIF] Could not load %s — starting fresh", protocol, path, exc_info=True)
+
+    return MultiWindowOIF(feature_names, protocol=protocol,
+                          baseline_flows=baseline_flows, save_path=path)
+
+
+tcp_detector = _load_or_create(TCP_IF_FEATURE_NAMES, "TCP", "tcp_oif.pkl")
+udp_detector = _load_or_create(UDP_IF_FEATURE_NAMES, "UDP", "udp_oif.pkl",
+                                baseline_flows=1024)
 
 
 def process_flow(flow: dict) -> dict | None:

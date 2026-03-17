@@ -121,6 +121,9 @@ services:
       - ipc_socket:/tmp/ids_ipc
       # Dashboard dist/ built on host by launch.py before docker-compose runs
       - ./dashboard/dist:/app/static:ro
+      # OIF model state persists across container restarts on the host.
+      # Files are written by the inference engine; ignored by git.
+      - ./inference/models:/app/models
     ports:
       - "8765:8765"
     networks:
