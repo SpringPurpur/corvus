@@ -6,4 +6,3 @@ scikit-learn
 shap
 numpy
 anthropic
-river==0.21.2

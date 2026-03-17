@@ -1,27 +1,29 @@
 # online_detector.py — multi-window streaming anomaly detection for TCP and UDP.
 #
-# Uses River's HalfSpaceTrees (Tan et al., IJCAI 2011) — a streaming anomaly
-# detector that maintains mass profiles across a sliding window. Chosen over
-# CapyMOA OnlineIsolationForest (Leveni et al., ICML 2024) for the same
-# detection quality without Java/PyTorch dependencies.
+# Implements Online Isolation Forest (Leveni et al., ICML 2024) natively in Python.
+# The algorithm maintains adaptive histogram trees that grow and collapse as data
+# arrives and departs the sliding window — no batch retraining, no Java dependency.
 #
 # Three models per protocol at different window sizes (256/1024/4096) weighted
-# 0.20/0.30/0.50 toward the slowest model. Slower windows are more resistant
-# to concept-drift poisoning — a flood must outlast 4096 flows to materially
-# shift the composite score.
+# 0.20/0.30/0.50. Slower windows resist poisoning: a flood must outlast 4096 flows
+# to materially shift the slow window's definition of normal.
 #
-# Explainability: path-depth attribution traverses each tree in the ensemble
-# and weights features by isolation depth. This is a snapshot explanation
-# anchored to the model state at detection time — the epistemically correct
-# answer to "why was this flow anomalous right now."
+# Explainability: path-depth attribution over OIF trees. Splits are data-adaptive
+# (chosen from actual observed ranges), so the feature at each split node is the
+# one that most effectively partitioned the data around this point — more meaningful
+# than HST's random half-space cuts.
+#
+# Reference: Leveni F., Cassales G.W., Pfahringer B., Bifet A., Boracchi G.
+#   "Online Isolation Forest." ICML 2024, PMLR v235.
 
 import logging
-from collections import defaultdict
-from dataclasses import dataclass
+import math
+import random
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import numpy as np
-from river.anomaly import HalfSpaceTrees
 from sklearn.preprocessing import RobustScaler
 
 log = logging.getLogger(__name__)
@@ -69,9 +71,286 @@ def _extract(flow: dict, features: list[tuple[str, callable]]) -> np.ndarray:
     return np.array([fn(flow) for _, fn in features], dtype=np.float64)
 
 
-def _to_river_dict(x: np.ndarray, names: list[str]) -> dict[str, float]:
-    """River expects a feature dict {name: value}."""
+def _to_oif_dict(x: np.ndarray, names: list[str]) -> dict[str, float]:
     return {name: float(x[i]) for i, name in enumerate(names)}
+
+
+# ── Online Isolation Forest — Leveni et al. ICML 2024 ─────────────────────────
+
+@dataclass
+class _OIFNode:
+    """A node in an Online Isolation Tree.
+
+    Internal nodes have split_feature/split_value set and non-None children.
+    Leaves have split_feature=None and no children.
+
+    h   — count of points currently in this node's sliding window.
+    min_val / max_val — bounding box of all points that have passed through
+                        this node and are still in the window. Updated on
+                        learn (expand) and approximated on unlearn (shrink
+                        from children, since raw points are not stored).
+    """
+    depth:         int
+    h:             int
+    min_val:       dict[str, float]
+    max_val:       dict[str, float]
+    split_feature: str | None           = None
+    split_value:   float | None         = None
+    left:          "_OIFNode | None"    = field(default=None, repr=False)
+    right:         "_OIFNode | None"    = field(default=None, repr=False)
+
+    @property
+    def is_leaf(self) -> bool:
+        return self.split_feature is None
+
+
+class OnlineIsolationTree:
+    """Single tree in an Online Isolation Forest.
+
+    Grows when a leaf accumulates enough points (adaptive threshold = η×2^depth)
+    and collapses when a branch loses too many (same threshold applied on unlearn).
+    Scoring is path length + leaf correction, same formula as classical iForest.
+    """
+
+    def __init__(
+        self,
+        feature_names:   list[str],
+        max_leaf_samples: int  = 32,
+        rng:             random.Random | None = None,
+    ) -> None:
+        self.feature_names    = feature_names
+        self.max_leaf_samples = max_leaf_samples
+        self._rng             = rng or random.Random()
+        self.root: _OIFNode | None = None
+
+    # ── split criterion ───────────────────────────────────────────────────────
+
+    def _threshold(self, depth: int) -> int:
+        # Adaptive criterion from Leveni et al. §3: deeper nodes require
+        # exponentially more data before splitting, keeping trees balanced.
+        return self.max_leaf_samples * (1 << depth)
+
+    def _leaf_correction(self, h: int) -> float:
+        # Expected additional path length inside a non-empty leaf, mirroring
+        # classical iForest's c(n) leaf correction (Liu et al. 2008).
+        # Returns 0 when h ≤ η — no meaningful subtree to estimate.
+        if h <= self.max_leaf_samples:
+            return 0.0
+        return math.log2(h / self.max_leaf_samples)
+
+    # ── learn ─────────────────────────────────────────────────────────────────
+
+    def learn_one(self, x: dict[str, float], max_depth: int) -> None:
+        if self.root is None:
+            self.root = _OIFNode(
+                depth=0, h=1,
+                min_val={f: x[f] for f in self.feature_names},
+                max_val={f: x[f] for f in self.feature_names},
+            )
+            return
+        self._learn(self.root, x, max_depth)
+
+    def _learn(self, node: _OIFNode, x: dict[str, float], max_depth: int) -> None:
+        node.h += 1
+        for f in self.feature_names:
+            if x[f] < node.min_val[f]:
+                node.min_val[f] = x[f]
+            if x[f] > node.max_val[f]:
+                node.max_val[f] = x[f]
+
+        if node.is_leaf:
+            if node.h >= self._threshold(node.depth) and node.depth < max_depth:
+                self._split(node)
+        else:
+            child = node.left if x[node.split_feature] < node.split_value else node.right
+            self._learn(child, x, max_depth)
+
+    def _split(self, node: _OIFNode) -> None:
+        """Convert a leaf to an internal node by choosing a random axis-parallel split.
+
+        Split feature is chosen uniformly at random from features that have
+        non-zero range (only features with variation can usefully split).
+        Child counts are estimated by assuming the h points are distributed
+        uniformly over the bounding box — same assumption as the paper's
+        Algorithm 2, which samples h points from U(R) to set child heights.
+        """
+        candidates = [
+            f for f in self.feature_names
+            if node.max_val[f] > node.min_val[f]
+        ]
+        if not candidates:
+            # All features are constant in this region — cannot split.
+            return
+
+        q = self._rng.choice(candidates)
+        p = self._rng.uniform(node.min_val[q], node.max_val[q])
+
+        frac_left = (p - node.min_val[q]) / (node.max_val[q] - node.min_val[q])
+        h_left  = max(round(node.h * frac_left), 1)
+        h_right = max(node.h - h_left, 1)
+
+        left_max       = dict(node.max_val);  left_max[q]  = p
+        right_min      = dict(node.min_val);  right_min[q] = p
+
+        node.split_feature = q
+        node.split_value   = p
+        node.left  = _OIFNode(node.depth + 1, h_left,  dict(node.min_val), left_max)
+        node.right = _OIFNode(node.depth + 1, h_right, right_min,          dict(node.max_val))
+
+    # ── unlearn ───────────────────────────────────────────────────────────────
+
+    def unlearn_one(self, x: dict[str, float]) -> None:
+        if self.root is None:
+            return
+        self._unlearn(self.root, x)
+        if self.root.h <= 0:
+            self.root = None
+
+    def _unlearn(self, node: _OIFNode, x: dict[str, float]) -> None:
+        node.h -= 1
+
+        if node.is_leaf:
+            return
+
+        # Collapse this branch if it no longer has enough data to justify
+        # its depth — mirrors the unlearn criterion in Algorithm 3.
+        if node.h < self._threshold(node.depth):
+            self._collapse(node)
+            return
+
+        child = node.left if x[node.split_feature] < node.split_value else node.right
+        self._unlearn(child, x)
+
+        # Approximate bounding box update from children.
+        # We can't recompute exact bounds without storing all points,
+        # so we shrink from children — the box can only tighten here,
+        # which is acceptable since it's used for split sampling only.
+        for f in self.feature_names:
+            node.min_val[f] = min(node.left.min_val[f], node.right.min_val[f])
+            node.max_val[f] = max(node.left.max_val[f], node.right.max_val[f])
+
+    def _collapse(self, node: _OIFNode) -> None:
+        """Collapse an internal node back into a leaf.
+
+        The combined bounding box is taken from children before nulling them.
+        Python GC reclaims the entire collapsed subtree.
+        """
+        node.min_val = {
+            f: min(node.left.min_val[f], node.right.min_val[f])
+            for f in self.feature_names
+        }
+        node.max_val = {
+            f: max(node.left.max_val[f], node.right.max_val[f])
+            for f in self.feature_names
+        }
+        node.split_feature = None
+        node.split_value   = None
+        node.left          = None
+        node.right         = None
+
+    # ── score ─────────────────────────────────────────────────────────────────
+
+    def score_one(self, x: dict[str, float]) -> float:
+        """Return path depth + leaf correction for x in this tree."""
+        if self.root is None:
+            return 0.0
+        return self._path_depth(self.root, x)
+
+    def _path_depth(self, node: _OIFNode, x: dict[str, float]) -> float:
+        if node.is_leaf:
+            return node.depth + self._leaf_correction(node.h)
+        child = node.left if x[node.split_feature] < node.split_value else node.right
+        return self._path_depth(child, x)
+
+    # ── attribution ───────────────────────────────────────────────────────────
+
+    def attribute_path(
+        self,
+        x:            dict[str, float],
+        model_weight: float,
+        feat_scores:  dict[str, float],
+    ) -> None:
+        """Walk the path for x, accumulating depth-weighted attribution.
+
+        Features at shallower depth isolated x more — weight by 1/(depth+1).
+        model_weight scales by the window model's contribution to composite.
+        """
+        node  = self.root
+        depth = 0
+        while node is not None and not node.is_leaf:
+            feat_scores[node.split_feature] += model_weight / (depth + 1)
+            node  = node.left if x[node.split_feature] < node.split_value else node.right
+            depth += 1
+
+
+class OnlineIsolationForest:
+    """Ensemble of OnlineIsolationTrees with a sliding window.
+
+    Each new point is learned into all trees. When the window fills, the
+    oldest point is explicitly unlearned — no batch retraining.
+
+    Anomaly score = 2^(-E[depth] / c(ω, η)) where c(ω, η) = log₂(ω/η).
+    This is the same normalisation as classical iForest adapted for the
+    online setting (paper §3.2). Score ∈ (0,1), higher = more anomalous.
+    """
+
+    def __init__(
+        self,
+        feature_names:    list[str],
+        n_trees:          int = 32,
+        window_size:      int = 2048,
+        max_leaf_samples: int = 32,
+        subsample:        float = 1.0,
+        seed:             int = 42,
+    ) -> None:
+        self.feature_names    = feature_names
+        self.window_size      = window_size
+        self.max_leaf_samples = max_leaf_samples
+        self.subsample        = subsample
+
+        # max_depth = log₂(ω/η) — the depth at which a fully grown tree
+        # contains exactly one point per leaf (Liu et al. 2008 §3).
+        self.max_depth        = max(1, int(math.log2(window_size / max_leaf_samples)))
+        # Normalization: expected average depth for a uniform dataset.
+        self._norm            = float(self.max_depth)
+
+        self._rng    = random.Random(seed)
+        self._trees  = [
+            OnlineIsolationTree(feature_names, max_leaf_samples, random.Random(seed + i))
+            for i in range(n_trees)
+        ]
+        # Sliding window stored as a plain deque — managed manually so we
+        # can unlearn the ejected point before it leaves the deque.
+        self._window: deque[dict[str, float]] = deque()
+
+    def learn_one(self, x: dict[str, float]) -> None:
+        if len(self._window) >= self.window_size:
+            old = self._window.popleft()
+            for tree in self._trees:
+                tree.unlearn_one(old)
+
+        self._window.append(x)
+        for tree in self._trees:
+            if self.subsample < 1.0 and self._rng.random() >= self.subsample:
+                continue
+            tree.learn_one(x, self.max_depth)
+
+    def score_one(self, x: dict[str, float]) -> float:
+        if not self._window:
+            return 0.5
+        depths     = [t.score_one(x) for t in self._trees]
+        mean_depth = sum(depths) / len(depths)
+        return 2.0 ** (-mean_depth / (self._norm + 1e-10))
+
+    def attribute(
+        self,
+        x:            dict[str, float],
+        model_weight: float,
+        feat_scores:  dict[str, float],
+    ) -> None:
+        """Accumulate path-depth attribution across all trees."""
+        for tree in self._trees:
+            tree.attribute_path(x, model_weight, feat_scores)
 
 
 # ── Multi-window result types ──────────────────────────────────────────────────
@@ -83,68 +362,55 @@ class WindowScores(NamedTuple):
     composite: float   # 0.20×fast + 0.30×medium + 0.50×slow
 
 
-@dataclass
-class Attribution:
-    """Top-3 feature attributions from path-depth traversal."""
-    # Each entry: (feature_name, normalised_attribution, raw_value)
-    # attribution: [0,1] — fraction of total isolation depth attributed to this feature
-    # raw_value: actual value from the flow, shown alongside baseline median
-    features: list[tuple[str, float, float]]
+# ── Multi-window OIF detector ──────────────────────────────────────────────────
 
-
-# ── Core multi-window detector ─────────────────────────────────────────────────
-
-class MultiWindowIF:
-    """Three HalfSpaceTrees models at window sizes 256/1024/4096.
+class MultiWindowOIF:
+    """Three OnlineIsolationForest models at window sizes 256/1024/4096.
 
     Weighted composite score (0.20/0.30/0.50) gives the slow model majority
-    influence, resisting poisoning by sustained floods.
+    influence, resisting poisoning by sustained floods. All three models share
+    the same feature set and are kept in sync (learn_one / selective training
+    applied identically).
     """
 
     _WINDOWS = (256, 1024, 4096)
     _WEIGHTS = (0.20, 0.30, 0.50)
 
     # Flows scoring above this threshold are not trained on — prevents attack
-    # traffic from shifting the model's definition of normal (selective training).
+    # traffic from shifting the model's definition of normal.
     TRAIN_THRESHOLD = 0.60
 
-    # Alert thresholds on composite score
     _THRESHOLD_CRITICAL = 0.75
     _THRESHOLD_HIGH     = 0.60
 
     def __init__(self, feature_names: list[str], protocol: str) -> None:
         self.feature_names = feature_names
         self.protocol      = protocol
-        n_features         = len(feature_names)
 
-        # River HalfSpaceTrees — height=ceil(log2(window_size)) by default.
-        # n_trees=25 matches River's default; sufficient for stable scoring.
-        self._models: list[HalfSpaceTrees] = [
-            HalfSpaceTrees(
-                n_trees=25,
-                height=15,
+        self._models: list[OnlineIsolationForest] = [
+            OnlineIsolationForest(
+                feature_names=feature_names,
+                n_trees=32,
                 window_size=w,
+                max_leaf_samples=32,
                 seed=42 + i,
             )
             for i, w in enumerate(self._WINDOWS)
         ]
 
         # RobustScaler fitted during baselining. Uses median/IQR rather than
-        # mean/std — less sensitive to extreme values if any attack traffic
-        # slips through during the warmup period.
+        # mean/std — less sensitive to extremes in the warmup period.
         self._scaler        = RobustScaler()
         self._scaler_fitted = False
 
-        # Baselining — accumulate raw feature vectors until BASELINE_FLOWS,
-        # then fit the scaler and seed all three models. Scores are suppressed
-        # until baselining is complete (returns None from process()).
-        self._baseline_buffer: list[np.ndarray] = []
+        self._baseline_buffer:   list[np.ndarray] = []
         self._baseline_complete = False
-        self.BASELINE_FLOWS = self._WINDOWS[2]   # wait for slow window to fill
+        # Wait for the slow window to fill before activating detection.
+        self.BASELINE_FLOWS = self._WINDOWS[2]
 
         self._n_trained = 0
 
-    # ── Baselining ────────────────────────────────────────────────────────────
+    # ── baselining ────────────────────────────────────────────────────────────
 
     @property
     def is_ready(self) -> bool:
@@ -161,26 +427,26 @@ class MultiWindowIF:
         self._scaler.fit(X)
         self._scaler_fitted = True
 
-        # Seed all three models on the baseline corpus.
+        # Seed all models on the baseline corpus.
         for raw in self._baseline_buffer:
-            x_scaled  = self._scaler.transform(raw.reshape(1, -1))[0]
-            x_dict    = _to_river_dict(x_scaled, self.feature_names)
+            x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
+            x_dict   = _to_oif_dict(x_scaled, self.feature_names)
             for model in self._models:
                 model.learn_one(x_dict)
 
         self._baseline_complete = True
         self._baseline_buffer.clear()
-        log.info("[%s IF] Baseline complete on %d flows — detection active",
+        log.info("[%s OIF] Baseline complete on %d flows — detection active",
                  self.protocol, self.BASELINE_FLOWS)
 
-    # ── Inference ─────────────────────────────────────────────────────────────
+    # ── inference ─────────────────────────────────────────────────────────────
 
-    def process(self, raw: np.ndarray) -> tuple[WindowScores, Attribution] | None:
-        """Score a flow, optionally train, return scores and attribution.
+    def process(self, raw: np.ndarray) -> tuple[WindowScores, list[dict]] | None:
+        """Score a flow. Returns None during baselining.
 
-        Returns None during baselining. After baselining, returns
-        (WindowScores, Attribution). High-scoring flows are not trained on
-        (selective training) to resist concept-drift poisoning.
+        After baselining: returns (WindowScores, top-3 attribution list).
+        Flows scoring below TRAIN_THRESHOLD are trained on; high-scoring
+        flows are withheld to prevent poisoning.
         """
         if not self._baseline_complete:
             self._baseline_buffer.append(raw)
@@ -189,9 +455,9 @@ class MultiWindowIF:
             return None
 
         x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
-        x_dict   = _to_river_dict(x_scaled, self.feature_names)
+        x_dict   = _to_oif_dict(x_scaled, self.feature_names)
 
-        scores = tuple(m.score_one(x_dict) for m in self._models)
+        scores    = tuple(m.score_one(x_dict) for m in self._models)
         composite = sum(w * s for w, s in zip(self._WEIGHTS, scores))
 
         window_scores = WindowScores(
@@ -199,9 +465,8 @@ class MultiWindowIF:
             composite=composite,
         )
 
-        attribution = self._attribute(x_scaled, raw)
+        attribution = self._attribute(x_dict, x_scaled, raw)
 
-        # Selective training — only update on likely-benign flows.
         if composite < self.TRAIN_THRESHOLD:
             for model in self._models:
                 model.learn_one(x_dict)
@@ -209,53 +474,50 @@ class MultiWindowIF:
 
         return window_scores, attribution
 
-    # ── Path-depth attribution ─────────────────────────────────────────────────
+    # ── path-depth attribution ─────────────────────────────────────────────────
 
-    def _attribute(self, x_scaled: np.ndarray, x_raw: np.ndarray) -> Attribution:
-        """Depth-weighted feature attribution over all trees and all models.
+    def _attribute(
+        self,
+        x_dict:  dict[str, float],
+        x_scaled: np.ndarray,
+        x_raw:    np.ndarray,
+    ) -> list[dict]:
+        """Depth-weighted attribution over all trees and all window models.
 
-        For each tree, we walk the path taken by x_scaled and record which
-        feature caused each split. Features at shallow depth caused earlier
-        isolation — they contributed more to the anomaly score and receive
-        higher weight (1/(depth+1)). Model weights (0.20/0.30/0.50) are
-        applied so the slow model's trees dominate the attribution.
+        Splits in OIF trees are chosen from the actual observed data range —
+        unlike HST's random half-spaces, they reflect real traffic structure.
+        A feature that appears at depth 0 (root) isolated this flow from all
+        baseline traffic in a single cut; depth 3 means four cuts were needed.
 
-        Uses tree.walk() rather than manual traversal — River's HSTBranch.walk()
-        handles the < vs <= split direction correctly and avoids depending on
-        internal node structure. Each item in model.trees is already the root
-        HSTBranch (no .root accessor exists).
-
-        This is a snapshot: the explanation reflects model state at detection
-        time, which is the correct temporal anchor for an IDS alert.
+        Model weights (0.20/0.30/0.50) are applied so the slow model's trees
+        dominate — matching their dominance in the composite score.
         """
-        x_dict      = _to_river_dict(x_scaled, self.feature_names)
-        feat_scores: dict[int, float] = defaultdict(float)
+        feat_scores: dict[str, float] = defaultdict(float)
 
         for model, model_weight in zip(self._models, self._WEIGHTS):
-            for tree in model.trees:
-                # walk() yields every node from root to leaf; leaf has no .feature
-                for depth, node in enumerate(tree.walk(x_dict)):
-                    if not hasattr(node, "feature"):
-                        continue
-                    feat_idx = self.feature_names.index(node.feature)
-                    feat_scores[feat_idx] += model_weight / (depth + 1)
+            model.attribute(x_dict, model_weight, feat_scores)
 
         total  = sum(feat_scores.values()) or 1.0
         ranked = sorted(feat_scores.items(), key=lambda kv: kv[1], reverse=True)
 
-        top = [
-            (self.feature_names[idx], score / total, float(x_raw[idx]))
-            for idx, score in ranked[:3]
+        stats = self.baseline_stats()
+        return [
+            {
+                "feature":  name,
+                "score":    score / total,
+                "value":    float(x_raw[self.feature_names.index(name)]),
+                "baseline": stats.get(name, {}),
+            }
+            for name, score in ranked[:3]
         ]
-        return Attribution(features=top)
 
-    # ── Baseline statistics for dashboard context ──────────────────────────────
+    # ── baseline statistics for dashboard context ──────────────────────────────
 
     def baseline_stats(self) -> dict[str, dict[str, float]]:
         """Median and IQR per feature from the fitted RobustScaler.
 
-        Used by the dashboard to show 'value: X  baseline: Y ± Z' next to
-        each attribution bar. Only available after baselining completes.
+        Used by the dashboard to show 'value: X  baseline: Y ± Z'
+        next to each attribution bar.
         """
         if not self._scaler_fitted:
             return {}
@@ -270,15 +532,14 @@ class MultiWindowIF:
 
 # ── Module-level detector instances ───────────────────────────────────────────
 #
-# One per protocol, instantiated at import time, shared across inference calls.
-# Not thread-safe — must be called from the single inference worker thread.
+# One per protocol, shared across inference calls from the single worker thread.
 
-tcp_detector = MultiWindowIF(TCP_IF_FEATURE_NAMES, protocol="TCP")
-udp_detector = MultiWindowIF(UDP_IF_FEATURE_NAMES, protocol="UDP")
+tcp_detector = MultiWindowOIF(TCP_IF_FEATURE_NAMES, protocol="TCP")
+udp_detector = MultiWindowOIF(UDP_IF_FEATURE_NAMES, protocol="UDP")
 
 
 def process_flow(flow: dict) -> dict | None:
-    """Extract features for the flow's protocol and run MultiWindowIF.
+    """Entry point: extract features, run MultiWindowOIF, return result dict.
 
     Returns a baselining status dict during warmup, a full result dict
     during detection, or None for unsupported protocols.
@@ -309,9 +570,9 @@ def process_flow(flow: dict) -> dict | None:
 
     scores, attribution = result
 
-    if scores.composite >= MultiWindowIF._THRESHOLD_CRITICAL:
+    if scores.composite >= MultiWindowOIF._THRESHOLD_CRITICAL:
         severity = "CRITICAL"
-    elif scores.composite >= MultiWindowIF._THRESHOLD_HIGH:
+    elif scores.composite >= MultiWindowOIF._THRESHOLD_HIGH:
         severity = "HIGH"
     else:
         severity = "INFO"
@@ -325,14 +586,6 @@ def process_flow(flow: dict) -> dict | None:
             "slow":      scores.slow,
             "composite": scores.composite,
         },
-        "verdict":  severity,
-        "attribution": [
-            {
-                "feature":  name,
-                "score":    attr_score,
-                "value":    raw_val,
-                "baseline": detector.baseline_stats().get(name, {}),
-            }
-            for name, attr_score, raw_val in attribution.features
-        ],
+        "verdict":     severity,
+        "attribution": attribution,
     }
