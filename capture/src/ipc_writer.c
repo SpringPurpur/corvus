@@ -67,12 +67,14 @@ static int connect_socket(void)
     return 0;
 }
 
-/* Write exactly n bytes; returns 0 on success, -1 on error/disconnect. */
+/* Write exactly n bytes; returns 0 on success, -1 on error/disconnect.
+ * MSG_NOSIGNAL converts SIGPIPE (broken socket) to EPIPE return value so
+ * the sender thread can reconnect rather than killing the whole process. */
 static int write_all(int fd, const void *buf, size_t n)
 {
     const uint8_t *p = buf;
     while (n > 0) {
-        ssize_t w = write(fd, p, n);
+        ssize_t w = send(fd, p, n, MSG_NOSIGNAL);
         if (w <= 0) return -1;
         p += w;
         n -= (size_t)w;
