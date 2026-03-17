@@ -8,7 +8,7 @@ COMPOSE = os.path.join(os.path.dirname(__file__), "docker-compose.yml")
 
 if __name__ == "__main__":
     subprocess.run(
-        ["docker-compose", "-f", COMPOSE, "down"],
+        ["docker", "--context", "default", "compose", "-f", COMPOSE, "down"],
         check=True,
     )
     print("[stop] Stack stopped.")

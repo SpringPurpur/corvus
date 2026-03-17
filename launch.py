@@ -4,7 +4,7 @@ launch.py — start the full Corvus IDS stack and open the dashboard.
 
 Build order:
   1. npm install + npm run build  (host, skipped if dist/ is up to date)
-  2. docker-compose up -d         (starts inference, monitor, targets, attacker)
+  2. docker compose up -d          (starts inference, monitor, targets, attacker)
   3. wait for /health             (inference engine ready)
   4. open dashboard in browser
 """
@@ -58,8 +58,11 @@ def build_dashboard() -> None:
             return
 
     print("[launch] Building dashboard...")
-    node_modules = os.path.join(DASHBOARD, "node_modules")
-    if not os.path.isdir(node_modules):
+    # Check for vite binary, not just the directory — empty node_modules dir
+    # is created by git and would falsely skip install
+    vite_bin = os.path.join(DASHBOARD, "node_modules", ".bin", "vite")
+    vite_cmd = vite_bin + ".cmd" if platform.system() == "Windows" else vite_bin
+    if not os.path.exists(vite_cmd):
         subprocess.run([NPM, "install"], cwd=DASHBOARD, check=True)
     subprocess.run([NPM, "run", "build"], cwd=DASHBOARD, check=True)
     print("[launch] Dashboard built.")
@@ -91,7 +94,7 @@ if __name__ == "__main__":
 
     print("[launch] Starting Corvus IDS stack...")
     subprocess.run(
-        ["docker-compose", "-f", COMPOSE, "up", "-d",
+        ["docker", "--context", "default", "compose", "-f", COMPOSE, "up", "-d",
          "--build",
          "--remove-orphans"],
         check=True,
