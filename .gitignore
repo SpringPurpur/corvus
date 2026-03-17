@@ -22,6 +22,9 @@ dashboard/node_modules/
 .docker/
 *.sock
 
+# SQLite flow database — written at runtime, not stored in git
+data/
+
 # IDE
 .vscode/settings.json
 .idea/

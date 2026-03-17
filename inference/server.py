@@ -7,11 +7,13 @@
 import asyncio
 import logging
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import storage
 from ws_handler import handle_websocket, manager
 
 log = logging.getLogger(__name__)
@@ -42,6 +44,16 @@ def configure(alert_queue: asyncio.Queue, llm_handler) -> None:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/flows")
+async def get_flows(
+    limit: int = Query(default=200, ge=1, le=2000),
+    proto: Optional[str] = Query(default=None),
+    label: Optional[str] = Query(default=None),
+    src_ip: Optional[str] = Query(default=None),
+) -> list:
+    return storage.query_flows(limit=limit, proto=proto, label=label, src_ip=src_ip)
 
 
 @app.websocket("/ws")

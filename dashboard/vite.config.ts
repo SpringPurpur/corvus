@@ -7,7 +7,8 @@ export default defineConfig({
     // During development, proxy /ws to the inference engine so the browser
     // can connect to the WebSocket without CORS restrictions
     proxy: {
-      '/ws': { target: 'ws://localhost:8765', ws: true },
+      '/ws':    { target: 'ws://localhost:8765', ws: true },
+      '/flows': { target: 'http://localhost:8765' },
     },
   },
 })

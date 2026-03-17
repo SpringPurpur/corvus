@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Alert, WsMessage, FeedbackMsg, LlmRequestMsg } from './types'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAlerts } from './hooks/useAlerts'
@@ -16,7 +16,10 @@ export default function App() {
   const [selected, setSelected] = useState<Alert | null>(null)
   const [, forceRender] = useState(0)
 
-  const { tcp, udp, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage } = useAlerts()
+  const { tcp, udp, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory } = useAlerts()
+
+  // Load the last 200 flows from SQLite on mount so the feed survives page refresh
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   const onMessage = (msg: WsMessage) => {
     if (msg.type === 'llm_response') {

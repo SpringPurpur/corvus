@@ -16,6 +16,7 @@ interface AlertState {
 
 interface UseAlertsReturn extends AlertState {
   handleMessage: (msg: WsMessage) => void
+  loadHistory: () => void
 }
 
 export function useAlerts(): UseAlertsReturn {
@@ -30,6 +31,30 @@ export function useAlerts(): UseAlertsReturn {
 
   // Track per-minute alert count using a sliding timestamp window
   const tsWindowRef = useRef<number[]>([])
+
+  const loadHistory = useCallback(() => {
+    fetch('/flows?limit=200')
+      .then((r) => r.json())
+      .then((flows: Alert[]) => {
+        if (!flows.length) return
+        // History comes back newest-first — reverse so oldest is at the top,
+        // matching the live feed append order. Then split by protocol.
+        const sorted = [...flows].reverse()
+        const tcp = sorted.filter((f) => f.proto === 'TCP').slice(-RING_SIZE)
+        const udp = sorted.filter((f) => f.proto === 'UDP').slice(-RING_SIZE)
+        sorted.forEach((f) => tsWindowRef.current.push(f.ts))
+        setState((s) => ({
+          ...s,
+          tcp,
+          udp,
+          // If we have history, detection was already active — skip baselining banner
+          baselining: false,
+        }))
+      })
+      .catch(() => {
+        // History unavailable (first run, or inference not yet up) — silent
+      })
+  }, [])
 
   const handleMessage = useCallback((msg: WsMessage) => {
     if (msg.type === 'status') {
@@ -59,5 +84,5 @@ export function useAlerts(): UseAlertsReturn {
     })
   }, [])
 
-  return { ...state, handleMessage }
+  return { ...state, handleMessage, loadHistory }
 }

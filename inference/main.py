@@ -17,6 +17,7 @@ import threading
 import uvicorn
 
 import llm
+import storage
 from classifier import Classifier
 from server import app, configure
 from socket_reader import run_socket_server
@@ -67,6 +68,7 @@ def _inference_worker(
                  alert["proto"], alert["verdict"]["label"],
                  alert["src_ip"], alert["src_port"],
                  alert["dst_ip"], alert["dst_port"])
+        storage.insert_flow(alert)
         # Thread-safe put into the asyncio queue via the event loop
         loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
 
@@ -91,6 +93,8 @@ async def _run(args: argparse.Namespace) -> None:
 
     flow_queue: queue.Queue = queue.Queue(maxsize=4096)
     alert_queue: asyncio.Queue = asyncio.Queue()
+
+    storage.init_db()
 
     classifier = Classifier(anomaly_only=args.anomaly_only)
     if args.anomaly_only:
