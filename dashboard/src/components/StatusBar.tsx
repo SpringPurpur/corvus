@@ -6,6 +6,8 @@ interface Props {
   modelsLoaded: boolean
   tcpCount: number
   udpCount: number
+  baselining: boolean
+  baselineProgress: number
 }
 
 function Dot({ on, label }: { on: boolean; label: string }) {
@@ -22,7 +24,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount }: Props) {
+export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress }: Props) {
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
@@ -30,6 +32,12 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
         <Dot on={connected} label="WebSocket" />
         <Dot on={captureUp} label="Capture" />
         <Dot on={modelsLoaded} label="Models" />
+        {baselining && (
+          <span className="flex items-center gap-1.5 text-xs text-amber-400 ml-2">
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+            Baselining {Math.round(baselineProgress * 100)}%
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span>TCP alerts: <span className="text-foreground font-medium">{tcpCount}</span></span>
