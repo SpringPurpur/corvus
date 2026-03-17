@@ -1,11 +1,13 @@
-# classifier.py — loads protocol-specific pkl models and runs inference.
+# classifier.py — inference entry point.
 #
-# Models expect features in a specific order (see feature_extractor.py).
-# Feature names must match exactly what the model was trained on — a mismatch
-# silently produces wrong predictions, not an error.
+# Active path: online_detector.process_flow() — MultiWindowIF anomaly detection
+# for both TCP and UDP. Protocol-specific feature sets, triple-window scoring,
+# path-depth attribution, baselining period before detection starts.
 #
-# In --anomaly-only mode the pkl models are not loaded; IsolationForest still
-# runs and alerts are emitted with label="Unknown" and confidence=0.0.
+# Legacy path: supervised ExtraTrees TCP classifier (extra_trees_tcp.pkl).
+# Kept for reference but not called — feature set no longer matches the struct
+# after fwd_pkts_per_sec / syn_flag_ratio / psh_flag_ratio were added.
+# Re-enable when a retrained model is available.
 
 import logging
 import os
@@ -23,6 +25,7 @@ from feature_extractor import (
     TCP_FEATURE_NAMES, UDP_FEATURE_NAMES,
     extract_tcp, extract_udp,
 )
+from online_detector import process_flow as _if_process_flow, tcp_detector, udp_detector
 
 log = logging.getLogger(__name__)
 
@@ -177,66 +180,64 @@ class Classifier:
     def predict(self, flow: dict) -> dict | None:
         """Run inference on a completed flow dict.
 
-        Returns an alert dict ready for WebSocket broadcast, or None if the
-        protocol is not supported (logged and skipped).
+        Active path: MultiWindowIF anomaly detection via online_detector.
+        Returns a baselining status dict during the warmup period, a full
+        alert dict once detection is active, or None for unsupported protocols.
         """
+        result = _if_process_flow(flow)
+        if result is None:
+            return None   # unsupported protocol
+
+        # During baselining — return a lightweight status update for the dashboard
+        if result["baselining"]:
+            return {
+                "type":     "baselining",
+                "protocol": result["protocol"],
+                "progress": result["progress"],
+            }
+
         proto = flow["protocol"]
-        anomaly = self._update_iso(flow)
-
-        if self.anomaly_only:
-            verdict = {
-                "label":      "Unknown",
-                "label_id":   -1,
-                "confidence": 0.0,
-                "severity":   "INFO",
-            }
-            shap_triples: list[list] = []
-
-        elif proto == 6:   # TCP
-            vec = extract_tcp(flow)
-            proba = self._tcp_model.predict_proba(vec)[0]
-            best_idx = int(np.argmax(proba))
-            # classes_ contains the original integer class IDs, not 0-based indices.
-            # Use label_map to convert to the human-readable label string.
-            int_class  = self._tcp_classes[best_idx]
-            label      = self._tcp_label_map[int_class]
-            confidence = float(proba[best_idx])
-            severity   = TCP_SEVERITY.get(label, "HIGH")
-            verdict = {
-                "label":      label,
-                "label_id":   int_class,
-                "confidence": confidence,
-                "severity":   severity,
-            }
-            # SHAP runs on the raw feature vector before the Pipeline scaler
-            vec_for_shap = self._tcp_model.named_steps["scaler"].transform(vec)
-            shap_triples = self._top3_shap(self._tcp_explainer, vec_for_shap,
-                                           TCP_FEATURE_NAMES)
-
-        elif proto == 17:  # UDP — unsupervised component pending
-            verdict = {
-                "label":      "Unknown",
-                "label_id":   -1,
-                "confidence": 0.0,
-                "severity":   "INFO",
-            }
-            shap_triples = []
-
-        else:
-            log.debug("Unsupported protocol %d — skipping flow", proto)
-            return None
-
         return {
-            "flow_id":  str(uuid.uuid4()),
-            "ts":       time.time(),
-            "src_ip":   flow["src_ip"],
-            "dst_ip":   flow["dst_ip"],
-            "src_port": flow["src_port"],
-            "dst_port": flow["dst_port"],
-            "proto":    "TCP" if proto == 6 else "UDP",
-            "duration": flow["flow_duration_s"],
-            "fwd_pkts": flow["tot_fwd_pkts"],
-            "verdict":  verdict,
-            "shap":     shap_triples,
-            "anomaly":  anomaly,
+            "flow_id":     str(uuid.uuid4()),
+            "ts":          time.time(),
+            "src_ip":      flow["src_ip"],
+            "dst_ip":      flow["dst_ip"],
+            "src_port":    flow["src_port"],
+            "dst_port":    flow["dst_port"],
+            "proto":       result["protocol"],
+            "duration":    flow["flow_duration_s"],
+            "fwd_pkts":    flow["tot_fwd_pkts"],
+            "verdict": {
+                "label":      result["verdict"],   # CRITICAL / HIGH / INFO
+                "severity":   result["verdict"],
+                "confidence": result["scores"]["composite"],
+            },
+            "scores":      result["scores"],       # fast/medium/slow/composite
+            "attribution": result["attribution"],  # top-3 path attribution
+            # Legacy supervised fields — empty until classifier is retrained
+            "shap":        [],
+            "anomaly":     result["scores"]["composite"],
+        }
+
+    # ── Legacy supervised TCP path (not called — feature set mismatch) ────────
+    # Re-enable when extra_trees_tcp.pkl is retrained on the updated feature set.
+
+    def _predict_supervised_tcp_legacy(self, flow: dict) -> dict:
+        """Supervised ExtraTrees classification. Kept for reference only."""
+        vec        = extract_tcp(flow)
+        proba      = self._tcp_model.predict_proba(vec)[0]
+        best_idx   = int(np.argmax(proba))
+        int_class  = self._tcp_classes[best_idx]
+        label      = self._tcp_label_map[int_class]
+        confidence = float(proba[best_idx])
+        severity   = TCP_SEVERITY.get(label, "HIGH")
+        vec_for_shap = self._tcp_model.named_steps["scaler"].transform(vec)
+        shap_triples = self._top3_shap(self._tcp_explainer, vec_for_shap,
+                                       TCP_FEATURE_NAMES)
+        return {
+            "label":      label,
+            "label_id":   int_class,
+            "confidence": confidence,
+            "severity":   severity,
+            "shap":       shap_triples,
         }

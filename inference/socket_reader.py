@@ -158,6 +158,10 @@ def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
         "fin_flag_cnt":      r.fin_flag_cnt,
         "urg_flag_cnt":      r.urg_flag_cnt,
         "bwd_pkt_len_mean":  r.bwd_pkt_len_mean,
+        # derived fields computed at finalisation in features_finalise()
+        "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,
+        "syn_flag_ratio":    r.syn_flag_ratio,
+        "psh_flag_ratio":    r.psh_flag_ratio,
     }
 
 
