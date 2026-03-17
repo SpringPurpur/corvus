@@ -11,4 +11,7 @@ RUN apt-get update -q && apt-get install -y --no-install-recommends \
     && gunzip -f /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
 
+COPY attacks/ /attacks/
+RUN chmod +x /attacks/*.sh
+
 CMD ["sleep", "infinity"]

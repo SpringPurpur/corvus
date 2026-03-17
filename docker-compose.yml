@@ -2,7 +2,9 @@ services:
 
   # ── Attack simulation targets ──────────────────────────────────────────────
   victim_web:
-    image: nginx:alpine
+    build:
+      context: ./victim_web
+      dockerfile: Dockerfile
     container_name: ids_victim_web
     networks:
       ids_net:
@@ -35,6 +37,35 @@ services:
     networks:
       ids_net:
         ipv4_address: 172.20.0.20
+
+  # ── Normal traffic clients (IF baseline + ongoing benign traffic) ──────────
+  client_a:
+    build:
+      context: ./clients
+      dockerfile: Dockerfile
+    container_name: ids_client_a
+    environment:
+      - CLIENT_ID=a
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.40
+    depends_on:
+      - victim_web
+      - victim_ssh
+
+  client_b:
+    build:
+      context: ./clients
+      dockerfile: Dockerfile
+    container_name: ids_client_b
+    environment:
+      - CLIENT_ID=b
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.41
+    depends_on:
+      - victim_web
+      - victim_ssh
 
   # ── Monitor (C capture engine) ─────────────────────────────────────────────
   monitor:
