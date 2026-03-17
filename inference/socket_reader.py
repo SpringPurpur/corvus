@@ -92,8 +92,8 @@ class FlowRecord(ctypes.Structure):
         ("pkt_len_buf_count",      ctypes.c_uint32),
         ("bwd_pkt_len_buf",        ctypes.c_uint16 * 512),
         ("bwd_pkt_len_buf_count",  ctypes.c_uint32),
-        # bwd_pkt_len_buf_count ends at offset 2196; uint64 needs 8-byte align → pad 4
-        ("_pad5",                  ctypes.c_uint8 * 4),
+        # bwd_pkt_len_buf_count ends at offset 2208 (8-byte aligned) after the 3
+        # float fields were added — no padding needed before fwd_iat_buf.
         ("fwd_iat_buf",            ctypes.c_uint64 * 256),
         ("fwd_iat_buf_count",      ctypes.c_uint32),
         # fwd_iat_buf_count ends at offset 4252; uint64 needs 8-byte align → pad 4

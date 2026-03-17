@@ -6,4 +6,4 @@ scikit-learn
 shap
 numpy
 anthropic
-capymoa
+river==0.21.2
