@@ -10,7 +10,8 @@ RUN apk add --no-cache \
     wget \
     openssh-client \
     sshpass \
-    bind-tools
+    bind-tools \
+    busybox-extras
 
 COPY scripts/ /scripts/
 RUN chmod +x /scripts/*.sh

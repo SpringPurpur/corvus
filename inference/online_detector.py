@@ -383,7 +383,8 @@ class MultiWindowOIF:
     _THRESHOLD_CRITICAL = 0.75
     _THRESHOLD_HIGH     = 0.60
 
-    def __init__(self, feature_names: list[str], protocol: str) -> None:
+    def __init__(self, feature_names: list[str], protocol: str,
+                 baseline_flows: int | None = None) -> None:
         self.feature_names = feature_names
         self.protocol      = protocol
 
@@ -405,8 +406,11 @@ class MultiWindowOIF:
 
         self._baseline_buffer:   list[np.ndarray] = []
         self._baseline_complete = False
-        # Wait for the slow window to fill before activating detection.
-        self.BASELINE_FLOWS = self._WINDOWS[2]
+        # TCP: wait for the slow window (4096) — continuous traffic makes this
+        # achievable quickly. UDP: medium window (1024) — ensures both the fast
+        # and medium models complete at least one full window cycle before
+        # detection activates; sparse UDP traffic makes 4096 impractical.
+        self.BASELINE_FLOWS = baseline_flows if baseline_flows is not None else self._WINDOWS[2]
 
         self._n_trained = 0
 
@@ -535,7 +539,8 @@ class MultiWindowOIF:
 # One per protocol, shared across inference calls from the single worker thread.
 
 tcp_detector = MultiWindowOIF(TCP_IF_FEATURE_NAMES, protocol="TCP")
-udp_detector = MultiWindowOIF(UDP_IF_FEATURE_NAMES, protocol="UDP")
+udp_detector = MultiWindowOIF(UDP_IF_FEATURE_NAMES, protocol="UDP",
+                               baseline_flows=1024)  # medium window size
 
 
 def process_flow(flow: dict) -> dict | None:
