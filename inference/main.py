@@ -48,20 +48,42 @@ def _inference_worker(
             log.error("Classifier error: %s", exc)
             continue
 
-        if alert is not None:
-            log.info("Alert: proto=%s label=%s src=%s:%s dst=%s:%s",
-                     alert["proto"], alert["verdict"]["label"],
-                     alert["src_ip"], alert["src_port"],
-                     alert["dst_ip"], alert["dst_port"])
-            # Thread-safe put into the asyncio queue via the event loop
-            loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
+        if alert is None:
+            continue
+
+        # During baselining process_flow() returns {"status": "baselining", ...}
+        # — forward progress to the dashboard and skip alert logging.
+        if alert.get("type") == "baselining":
+            loop.call_soon_threadsafe(
+                alert_queue.put_nowait,
+                {"type": "status",
+                 "baselining": True,
+                 "progress": alert.get("progress", 0.0),
+                 "protocol": alert.get("protocol", "")},
+            )
+            continue
+
+        log.info("Alert: proto=%s label=%s src=%s:%s dst=%s:%s",
+                 alert["proto"], alert["verdict"]["label"],
+                 alert["src_ip"], alert["src_port"],
+                 alert["dst_ip"], alert["dst_port"])
+        # Thread-safe put into the asyncio queue via the event loop
+        loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
 
 
 async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
-    """Drain the asyncio alert_queue and broadcast each alert to all WS clients."""
+    """Drain the asyncio alert_queue and broadcast each item to all WS clients.
+
+    Status messages (baselining progress) are already fully-formed dicts with
+    a 'type' key and are broadcast as-is. Alert dicts are wrapped in the
+    standard {'type': 'alert', 'data': ...} envelope.
+    """
     while True:
-        alert = await alert_queue.get()
-        await manager.broadcast({"type": "alert", "data": alert})
+        item = await alert_queue.get()
+        if item.get("type") == "status":
+            await manager.broadcast(item)
+        else:
+            await manager.broadcast({"type": "alert", "data": item})
 
 
 async def _run(args: argparse.Namespace) -> None:
