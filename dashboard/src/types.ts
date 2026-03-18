@@ -1,5 +1,12 @@
 export type Severity = 'INFO' | 'HIGH' | 'CRITICAL'
 
+export interface AppConfig {
+  threshold_high:     number
+  threshold_critical: number
+  baseline_tcp:       number
+  baseline_udp:       number
+}
+
 export interface Verdict {
   label: string       // anomaly severity tier: INFO / HIGH / CRITICAL
   confidence: number  // OIF composite score 0-1

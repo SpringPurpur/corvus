@@ -7,6 +7,7 @@ import { AlertFeed } from './components/AlertFeed'
 import { AlertDetail } from './components/AlertDetail'
 import { LLMPanel } from './components/LLMPanel'
 import { StatsBar } from './components/StatsBar'
+import { SettingsPanel } from './components/SettingsPanel'
 
 // Accumulated LLM responses keyed by request_id — never reset, grows per session
 const llmResponses: Record<string, string> = {}
@@ -14,6 +15,7 @@ const llmResponses: Record<string, string> = {}
 export default function App() {
   const [tab, setTab] = useState<'TCP' | 'UDP'>('TCP')
   const [selected, setSelected] = useState<Alert | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   const [, forceRender] = useState(0)
 
   const { tcp, udp, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory } = useAlerts()
@@ -44,7 +46,10 @@ export default function App() {
         udpCount={udp.length}
         baselining={baselining}
         baselineProgress={baselineProgress}
+        onSettings={() => setShowSettings(true)}
       />
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
       {/* Protocol tab bar */}
       <div className="flex border-b px-4 bg-card">

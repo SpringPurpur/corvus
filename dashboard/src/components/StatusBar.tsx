@@ -8,6 +8,7 @@ interface Props {
   udpCount: number
   baselining: boolean
   baselineProgress: number
+  onSettings: () => void
 }
 
 function Dot({ on, label }: { on: boolean; label: string }) {
@@ -24,7 +25,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress }: Props) {
+export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, onSettings }: Props) {
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
@@ -42,6 +43,14 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span>TCP alerts: <span className="text-foreground font-medium">{tcpCount}</span></span>
         <span>UDP alerts: <span className="text-foreground font-medium">{udpCount}</span></span>
+        <button
+          onClick={onSettings}
+          title="Detection settings"
+          className="ml-1 text-muted-foreground hover:text-foreground transition-colors text-base leading-none"
+          aria-label="Open settings"
+        >
+          ⚙
+        </button>
       </div>
     </header>
   )
