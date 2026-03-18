@@ -13,6 +13,7 @@ import asyncio
 import logging
 import queue
 import threading
+import time
 
 import uvicorn
 
@@ -85,6 +86,12 @@ async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
         if item.get("type") == "status":
             await manager.broadcast(item)
         else:
+            # Stamp WebSocket send time, then strip timing from the nested dict
+            # so it travels as a flat block inside the alert envelope.
+            timing = item.pop("_timing", None)
+            if timing:
+                timing["t_ws_ns"] = time.time_ns()
+                item["timing"] = timing
             await manager.broadcast({"type": "alert", "data": item})
 
 

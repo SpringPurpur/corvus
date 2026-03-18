@@ -27,6 +27,14 @@ export interface AttributionEntry {
   baseline: { median: number; iqr: number } // from RobustScaler fit on baseline corpus
 }
 
+export interface PipelineTiming {
+  flow_ts_ns:    number   // C engine: last packet timestamp (ns, CLOCK_REALTIME)
+  t_socket_ns:   number   // Python: after ctypes decode, before queue.put (ns)
+  t_infer_ns:    number   // Python: OIF complete (ns)
+  t_ws_ns:       number   // Python: before WebSocket broadcast (ns)
+  t_browser_ms?: number   // Browser: Date.now() on frame receipt (ms)
+}
+
 export interface Alert {
   flow_id:     string
   ts:          number
@@ -40,6 +48,7 @@ export interface Alert {
   verdict:     Verdict
   scores:      OifScores
   attribution: AttributionEntry[]
+  timing?:     PipelineTiming
 }
 
 // WebSocket downstream message union

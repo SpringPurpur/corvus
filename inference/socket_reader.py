@@ -14,6 +14,7 @@ import queue
 import socket
 import struct
 import threading
+import time
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -162,6 +163,8 @@ def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
         "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,
         "syn_flag_ratio":    r.syn_flag_ratio,
         "psh_flag_ratio":    r.psh_flag_ratio,
+        # latency measurement — timestamp of the last packet in the flow (C CLOCK_REALTIME ns)
+        "last_pkt_ns":       r.last_pkt_ns,
     }
 
 
@@ -210,6 +213,8 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
 
         ctypes.memmove(ctypes.addressof(record), data, record_size)
         d = _record_to_dict(record)
+        # Stamp arrival time immediately after decode — measures IPC transport + ctypes cost
+        d["t_socket_ns"] = time.time_ns()
         log.info("Flow received: proto=%d src=%s:%d dst=%s:%d pkts=%d",
                  d["protocol"], d["src_ip"], d["src_port"],
                  d["dst_ip"], d["dst_port"], d["tot_pkts"])

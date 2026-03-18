@@ -35,8 +35,13 @@ export function useWebSocket(
     }
 
     ws.onmessage = (ev) => {
+      const t_browser_ms = Date.now()   // stamp immediately on frame receipt
       try {
         const msg = decode(ev.data as ArrayBuffer) as WsMessage
+        // Inject browser receipt time into alert timing block
+        if (msg.type === 'alert' && msg.data.timing) {
+          msg.data.timing.t_browser_ms = t_browser_ms
+        }
         onMessageRef.current(msg)
       } catch {
         // malformed frame — ignore

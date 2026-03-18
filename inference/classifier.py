@@ -196,6 +196,8 @@ class Classifier:
                 "progress": result["progress"],
             }
 
+        t_infer_ns = time.time_ns()   # OIF complete — stamp before dict construction
+
         proto = flow["protocol"]
         return {
             "flow_id":     str(uuid.uuid4()),
@@ -214,6 +216,12 @@ class Classifier:
             },
             "scores":      result["scores"],       # fast/medium/slow/composite
             "attribution": result["attribution"],  # top-3 OIF path-depth attribution
+            # Pipeline latency timestamps (nanoseconds, CLOCK_REALTIME)
+            "_timing": {
+                "flow_ts_ns":  flow.get("last_pkt_ns", 0),
+                "t_socket_ns": flow.get("t_socket_ns", 0),
+                "t_infer_ns":  t_infer_ns,
+            },
         }
 
     # ── Legacy supervised TCP path (not called — feature set mismatch) ────────

@@ -1,4 +1,4 @@
-import type { Alert, AttributionEntry } from '../types'
+import type { Alert, AttributionEntry, PipelineTiming } from '../types'
 
 interface Props {
   alert: Alert
@@ -104,6 +104,55 @@ export function AlertDetail({ alert }: Props) {
           </div>
         </section>
       )}
+
+      {/* Pipeline latency */}
+      {alert.timing?.t_browser_ms && (
+        <section>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Pipeline latency
+          </h3>
+          <LatencyBreakdown timing={alert.timing} />
+        </section>
+      )}
+    </div>
+  )
+}
+
+function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
+  const { flow_ts_ns, t_socket_ns, t_infer_ns, t_ws_ns, t_browser_ms } = timing
+
+  // All ns timestamps share CLOCK_REALTIME with Date.now() (ms).
+  // Convert ns → ms for display. JS number loses sub-512ns precision at this
+  // magnitude but millisecond-scale measurements are unaffected.
+  const ns2ms = (ns: number) => ns / 1_000_000
+
+  const stages: [string, number][] = [
+    ['IPC + decode',      ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
+    ['Queue wait',        ns2ms(t_infer_ns)   - ns2ms(t_socket_ns)],
+    ['OIF inference',     ns2ms(t_ws_ns)      - ns2ms(t_infer_ns)],
+    ['WS → browser',      t_browser_ms!       - ns2ms(t_ws_ns)],
+  ]
+  const total = t_browser_ms! - ns2ms(flow_ts_ns)
+  const maxStage = Math.max(...stages.map(([, v]) => v))
+
+  return (
+    <div className="space-y-1">
+      {stages.map(([label, ms]) => (
+        <div key={label} className="flex items-center gap-2 text-xs">
+          <span className="w-28 text-muted-foreground text-right shrink-0">{label}</span>
+          <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-emerald-500"
+              style={{ width: `${Math.min((ms / maxStage) * 100, 100)}%` }}
+            />
+          </div>
+          <span className="w-14 tabular-nums text-right">{ms.toFixed(2)} ms</span>
+        </div>
+      ))}
+      <div className="flex justify-between text-[10px] text-muted-foreground/70 pt-1 border-t border-border">
+        <span>Total</span>
+        <span className="tabular-nums font-medium text-foreground">{total.toFixed(2)} ms</span>
+      </div>
     </div>
   )
 }
