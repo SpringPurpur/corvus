@@ -64,7 +64,9 @@ export function SettingsPanel({ onClose }: Props) {
     setResetting(protocol)
     try {
       await fetch(`/baseline/reset?protocol=${protocol}`, { method: 'POST' })
-    } finally {
+      // Reload so the alert feed clears and baselining indicator shows from scratch
+      window.location.reload()
+    } catch {
       setResetting(null)
     }
   }, [])
