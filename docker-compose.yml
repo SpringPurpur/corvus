@@ -106,6 +106,12 @@ services:
     # traffic flows. A container's own eth0 in bridge mode only receives unicast
     # frames addressed to it — host mode bypasses this limitation.
     network_mode: host
+    environment:
+      # Leave empty for auto-detection (finds the Docker bridge for ids_net).
+      # For SPAN/TAP port deployments set to the physical NIC, e.g. ens3.
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-}
+      # Optional BPF filter, e.g. "ip and not host 192.168.1.1"
+      - CAPTURE_FILTER=${CAPTURE_FILTER:-}
     volumes:
       - ./capture:/app/capture
       - ipc_socket:/tmp/ids_ipc
@@ -124,6 +130,8 @@ services:
       # OIF model state persists across container restarts on the host.
       # Files are written by the inference engine; ignored by git.
       - ./inference/models:/app/models
+      # Analyst config (thresholds etc.) persists across container restarts.
+      - ./inference/config.json:/app/config.json
       # SQLite flow DB persists across container restarts on the host.
       - ./data:/app/data
     ports:

@@ -16,23 +16,37 @@ if [ ! -f "$BINARY" ]; then
     echo "[monitor] Build complete."
 fi
 
-# Find the bridge interface that carries ids_net traffic (172.20.0.0/24).
-# ip route shows the outgoing interface for a given destination prefix.
-IFACE=$(ip route show 172.20.0.0/24 2>/dev/null | awk '{print $3}' | head -1)
-
-if [ -z "$IFACE" ]; then
-    echo "[monitor] ERROR: could not determine bridge interface for 172.20.0.0/24"
-    echo "[monitor] Available interfaces:"
-    ip link show type bridge
-    exit 1
+# Determine capture interface.
+# CAPTURE_INTERFACE env var takes precedence — set it in .env for physical
+# deployments (SPAN/TAP port, e.g. CAPTURE_INTERFACE=ens3).
+# If unset, auto-detect the bridge carrying ids_net traffic (172.20.0.0/24).
+if [ -n "$CAPTURE_INTERFACE" ]; then
+    IFACE="$CAPTURE_INTERFACE"
+    echo "[monitor] Using configured interface: $IFACE"
+else
+    IFACE=$(ip route show 172.20.0.0/24 2>/dev/null | awk '{print $3}' | head -1)
+    if [ -z "$IFACE" ]; then
+        echo "[monitor] ERROR: could not determine bridge interface for 172.20.0.0/24"
+        echo "[monitor] Set CAPTURE_INTERFACE in .env to specify the interface manually."
+        echo "[monitor] Available interfaces:"
+        ip link show
+        exit 1
+    fi
+    echo "[monitor] Auto-detected interface: $IFACE"
 fi
 
-echo "[monitor] Capturing on interface: $IFACE"
+# Optional BPF filter — restrict capture to a subnet or exclude management traffic.
+# Example: CAPTURE_FILTER="ip and not host 192.168.1.1"
+FILTER_ARGS=""
+if [ -n "$CAPTURE_FILTER" ]; then
+    echo "[monitor] BPF filter: $CAPTURE_FILTER"
+    FILTER_ARGS="-f $CAPTURE_FILTER"
+fi
 
 # Restart loop — if capture_engine exits for any reason (killed for rebuild,
 # crash, signal) the container stays alive and restarts it automatically.
 while true; do
-    "$BINARY" -i "$IFACE"
+    "$BINARY" -i "$IFACE" $FILTER_ARGS
     EXIT_CODE=$?
     echo "[monitor] capture_engine exited (code $EXIT_CODE), restarting in 2s..."
     sleep 2
