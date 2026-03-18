@@ -6,13 +6,16 @@
 
 import asyncio
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, field_validator
 
+import config as cfg_module
 import storage
 from ws_handler import handle_websocket, manager
 
@@ -44,6 +47,50 @@ def configure(alert_queue: asyncio.Queue, llm_handler) -> None:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+class ConfigBody(BaseModel):
+    threshold_high:     float
+    threshold_critical: float
+    baseline_tcp:       int
+    baseline_udp:       int
+
+    @field_validator("threshold_high", "threshold_critical")
+    @classmethod
+    def _check_threshold(cls, v: float) -> float:
+        if not (0.0 < v < 1.0):
+            raise ValueError("threshold must be between 0 and 1")
+        return v
+
+    @field_validator("baseline_tcp", "baseline_udp")
+    @classmethod
+    def _check_baseline(cls, v: int) -> int:
+        if v < 64:
+            raise ValueError("baseline must be at least 64 flows")
+        return v
+
+
+@app.get("/config")
+async def get_config() -> dict:
+    return asdict(cfg_module.cfg)
+
+
+@app.post("/config")
+async def post_config(body: ConfigBody) -> dict:
+    if body.threshold_high >= body.threshold_critical:
+        raise HTTPException(400, "threshold_high must be less than threshold_critical")
+    cfg_module.update(cfg_module.AppConfig(**body.model_dump()))
+    return {"ok": True}
+
+
+@app.post("/baseline/reset")
+async def reset_baseline(protocol: str = Query(default="all")) -> dict:
+    if protocol not in ("TCP", "UDP", "all"):
+        raise HTTPException(400, "protocol must be TCP, UDP, or all")
+    # Import here to avoid circular import — online_detector imports config
+    from online_detector import reset_detector
+    reset_detector(protocol)
+    return {"ok": True, "protocol": protocol}
 
 
 @app.get("/flows")

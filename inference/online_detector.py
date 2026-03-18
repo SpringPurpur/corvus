@@ -28,6 +28,8 @@ from typing import NamedTuple
 import numpy as np
 from sklearn.preprocessing import RobustScaler
 
+import config as _cfg_module
+
 log = logging.getLogger(__name__)
 
 # ── Feature definitions ────────────────────────────────────────────────────────
@@ -382,9 +384,6 @@ class MultiWindowOIF:
     # traffic from shifting the model's definition of normal.
     TRAIN_THRESHOLD = 0.60
 
-    _THRESHOLD_CRITICAL = 0.75
-    _THRESHOLD_HIGH     = 0.60
-
     # Save to disk every N trained flows so a mid-session restart loses at
     # most this many flows' worth of learned structure.
     _SAVE_INTERVAL = 200
@@ -612,7 +611,38 @@ def _load_or_create(
 
 tcp_detector = _load_or_create(TCP_IF_FEATURE_NAMES, "TCP", "tcp_oif.pkl")
 udp_detector = _load_or_create(UDP_IF_FEATURE_NAMES, "UDP", "udp_oif.pkl",
-                                baseline_flows=1024)
+                                baseline_flows=_cfg_module.cfg.baseline_udp)
+
+
+def reset_detector(protocol: str) -> None:
+    """Discard a trained detector and start fresh baselining.
+
+    Deletes the persisted pkl so the next startup also starts clean.
+    Called when the analyst triggers 'Reset baseline' from the dashboard —
+    useful after clearing an attack to prevent attack flows from polluting
+    the baseline going forward.
+    """
+    global tcp_detector, udp_detector
+    cfg = _cfg_module.cfg
+
+    if protocol in ("TCP", "all"):
+        pkl = _MODEL_DIR / "tcp_oif.pkl"
+        if pkl.exists():
+            pkl.unlink()
+        tcp_detector = MultiWindowOIF(
+            TCP_IF_FEATURE_NAMES, protocol="TCP", save_path=pkl,
+        )
+        log.info("[TCP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_tcp)
+
+    if protocol in ("UDP", "all"):
+        pkl = _MODEL_DIR / "udp_oif.pkl"
+        if pkl.exists():
+            pkl.unlink()
+        udp_detector = MultiWindowOIF(
+            UDP_IF_FEATURE_NAMES, protocol="UDP",
+            baseline_flows=cfg.baseline_udp, save_path=pkl,
+        )
+        log.info("[UDP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_udp)
 
 
 def process_flow(flow: dict) -> dict | None:
@@ -647,9 +677,12 @@ def process_flow(flow: dict) -> dict | None:
 
     scores, attribution = result
 
-    if scores.composite >= MultiWindowOIF._THRESHOLD_CRITICAL:
+    # Read thresholds from the live config — analyst can adjust via dashboard
+    # without restarting the inference engine.
+    cfg = _cfg_module.cfg
+    if scores.composite >= cfg.threshold_critical:
         severity = "CRITICAL"
-    elif scores.composite >= MultiWindowOIF._THRESHOLD_HIGH:
+    elif scores.composite >= cfg.threshold_high:
         severity = "HIGH"
     else:
         severity = "INFO"
