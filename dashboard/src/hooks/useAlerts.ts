@@ -62,7 +62,9 @@ export function useAlerts(): UseAlertsReturn {
         ...s,
         captureUp: msg.capture ?? s.captureUp,
         modelsLoaded: msg.models ?? s.modelsLoaded,
-        baselining: msg.baselining ?? false,
+        // Once cleared by a real alert, don't re-enable — TCP and UDP
+      // baseline independently; the slower one must not re-show the banner.
+      baselining: s.baselining ? (msg.baselining ?? false) : false,
         baselineProgress: msg.progress ?? s.baselineProgress,
       }))
       return
