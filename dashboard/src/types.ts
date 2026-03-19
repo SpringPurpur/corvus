@@ -51,10 +51,22 @@ export interface Alert {
   timing?:     PipelineTiming
 }
 
+export interface OifMetrics {
+  n_seen:         number
+  n_trained:      number
+  n_rejected:     number
+  rejection_rate: number   // n_rejected / n_seen — rises during active attacks
+  score_p50:      number   // median composite score
+  score_p95:      number   // 95th-percentile composite score
+  score_recent:   number[] // last ≤20 scores for sparkline
+  ready:          boolean  // baseline complete
+}
+
 // WebSocket downstream message union
 export type WsMessage =
   | { type: 'alert'; data: Alert }
   | { type: 'status'; capture: boolean; models: boolean; baselining?: boolean; progress?: number; protocol?: string }
+  | { type: 'stats'; tcp: OifMetrics; udp: OifMetrics }
   | { type: 'llm_response'; request_id: string; text: string }
 
 // WebSocket upstream messages
