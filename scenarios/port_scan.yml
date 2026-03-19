@@ -1,0 +1,22 @@
+name: TCP Port Scan
+description: >
+  nmap SYN scan of ports 1-1000 on victim_web at 200 pkt/s.
+  Generates ~1000 micro-flows (2-3 packets each).
+  Expected OIF signature: rst_flag_cnt high, tot_pkts=2-3, flow_duration_s<0.1s.
+  Opposite of floods: breadth over depth. Traditional threshold detectors
+  tuned for high packet rate will miss slow scans.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/port_scan.sh
+  args: ["172.20.0.10", "1-1000", "200"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 60

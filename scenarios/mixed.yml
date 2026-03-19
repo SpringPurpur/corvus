@@ -1,0 +1,31 @@
+name: Mixed Attack (SYN Flood + SSH Brute-Force)
+description: >
+  Two sequential attacks demonstrating independent detection of qualitatively
+  different threat types within one scenario run.
+  Phase 1: SYN flood (volumetric, TCP, one flow, zero response).
+  Phase 2: SSH brute-force (credential attack, many short flows, bidirectional).
+  Recovery period separates them. Expected result: two distinct CRITICAL bursts
+  in the dashboard, different attribution features for each.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+# Multi-phase attacks — list of attack steps executed sequentially.
+# Each step waits for the previous to complete before starting.
+phases:
+  - name: SYN Flood
+    script: /attacks/syn_flood.sh
+    args: ["172.20.0.10", "80", "10000"]
+    rest_s: 90          # wait 90s between phases for score recovery
+
+  - name: SSH Brute-Force
+    script: /attacks/ssh_bruteforce.sh
+    args: []
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 120

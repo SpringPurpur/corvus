@@ -1,0 +1,23 @@
+name: SSH Brute-Force
+description: >
+  Hydra dictionary attack against victim_ssh:2222 using rockyou.txt (4 threads).
+  Generates hundreds of short TCP flows — each failed attempt is one flow.
+  Expected OIF signature: many flows from same src_ip to same dst_port,
+  psh_flag_ratio>0, bwd_pkts_per_sec low but nonzero (server responds with
+  rejection). Analogous to SSH-Patator in CIC-IDS 2018.
+  Note: hydra exits when wordlist is exhausted — no count arg needed.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/ssh_bruteforce.sh
+  args: []
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 60

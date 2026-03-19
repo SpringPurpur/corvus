@@ -1,0 +1,27 @@
+name: Slowloris HTTP DoS
+description: >
+  slowhttptest opens 200 concurrent connections and sends headers very slowly
+  for 120 seconds, exhausting nginx's worker pool without high packet rates.
+  Expected OIF signature: flow_duration_s>60s, fwd_pkts_per_sec<1,
+  many simultaneous flows from same src_ip.
+  This attack bypasses volumetric detectors entirely — packet rate is normal.
+  The OIF detects it because (long_duration + low_pkt_rate + same_src) is
+  statistically unlike any benign flow in the baseline corpus.
+  Most academically interesting scenario for demonstrating unsupervised detection.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/slowloris.sh
+  args: ["http://172.20.0.10/", "200", "120"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  # Slowloris flows complete when the attack ends (server closes connections).
+  # 30s active timeout will flush any remaining half-open flows.
+  monitor_s: 180

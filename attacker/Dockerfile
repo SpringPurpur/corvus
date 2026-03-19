@@ -8,6 +8,8 @@ RUN apt-get update -q && apt-get install -y --no-install-recommends \
         wget \
         iputils-ping \
         wordlists \
+        apache2-utils \
+        slowhttptest \
     && gunzip -f /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
 

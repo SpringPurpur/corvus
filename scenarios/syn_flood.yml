@@ -1,0 +1,21 @@
+name: TCP SYN Flood
+description: >
+  10 000 SYN packets from the attacker (172.20.0.20) against victim_web:80.
+  Fixed source port (-k) groups all packets into one flow.
+  Expected OIF signature: syn_flag_ratio=1.0, flow_duration_s<1s,
+  fwd_pkts~10000, bwd_pkts=0. Analogous to DoS-GoldenEye in CIC-IDS 2018.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/syn_flood.sh
+  args: ["172.20.0.10", "80", "10000"]
+
+baseline:
+  auto_baseline: true       # trigger fast_baseline.sh on both clients first
+  wait_for_ready: true      # block until tcp_detector.is_ready = true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 120            # observe for 2 min after attack completes

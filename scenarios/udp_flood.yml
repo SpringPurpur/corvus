@@ -1,0 +1,21 @@
+name: UDP Flood
+description: >
+  5 000 UDP packets from the attacker (172.20.0.20) against victim_web:53.
+  Fixed source port groups all packets into one flow.
+  Expected OIF signature: down_up_ratio~0, flow_iat_mean very low,
+  fwd_pkts~5000, no response. Analogous to DDoS-LOIC-UDP in CIC-IDS 2018.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/udp_flood.sh
+  args: ["172.20.0.10", "53", "5000"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true      # waits for BOTH tcp and udp detectors
+  timeout_s: 360
+
+recovery:
+  monitor_s: 60

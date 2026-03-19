@@ -25,6 +25,9 @@ dashboard/node_modules/
 # SQLite flow database — written at runtime, not stored in git
 data/
 
+# Scenario results — generated at runtime, not stored in git
+scenarios/results/*.json
+
 # IDE
 .vscode/settings.json
 .idea/
