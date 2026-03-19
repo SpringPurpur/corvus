@@ -419,7 +419,10 @@ class MultiWindowOIF:
         # detection activates; sparse UDP traffic makes 4096 impractical.
         self.BASELINE_FLOWS = baseline_flows if baseline_flows is not None else self._WINDOWS[2]
 
-        self._n_trained = 0
+        self._n_trained  = 0
+        self._n_seen     = 0   # flows processed after baseline complete
+        self._n_rejected = 0   # flows withheld from training (composite ≥ TRAIN_THRESHOLD)
+        self._score_buf: deque[float] = deque(maxlen=500)  # rolling composite scores
 
     # ── baselining ────────────────────────────────────────────────────────────
 
@@ -508,12 +511,17 @@ class MultiWindowOIF:
 
         attribution = self._attribute(x_dict, x_scaled, raw)
 
+        self._n_seen += 1
+        self._score_buf.append(composite)
+
         if composite < self.TRAIN_THRESHOLD:
             for model in self._models:
                 model.learn_one(x_dict)
             self._n_trained += 1
             if self._n_trained % self._SAVE_INTERVAL == 0:
                 self.save()
+        else:
+            self._n_rejected += 1
 
         return window_scores, attribution
 
@@ -553,6 +561,28 @@ class MultiWindowOIF:
             }
             for name, score in ranked[:3]
         ]
+
+    # ── health metrics ─────────────────────────────────────────────────────────
+
+    def metrics(self) -> dict:
+        """Runtime health metrics for the dashboard Model Health panel.
+
+        rejection_rate rising during an attack means the poisoning defence is
+        working — anomalous flows are being withheld from training. A falling
+        rate after an attack ends reflects the slow window forgetting the attack
+        distribution and returning to normal.
+        """
+        buf = list(self._score_buf)
+        arr = np.array(buf) if buf else np.array([0.0])
+        return {
+            "n_seen":         self._n_seen,
+            "n_trained":      self._n_trained,
+            "n_rejected":     self._n_rejected,
+            "rejection_rate": self._n_rejected / max(self._n_seen, 1),
+            "score_p50":      float(np.percentile(arr, 50)),
+            "score_p95":      float(np.percentile(arr, 95)),
+            "score_recent":   buf[-20:],   # last 20 scores for sparkline
+        }
 
     # ── baseline statistics for dashboard context ──────────────────────────────
 

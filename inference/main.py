@@ -38,6 +38,9 @@ def _inference_worker(
     classifier: Classifier,
 ) -> None:
     """Drain flow_queue, run inference, push alerts onto the asyncio alert_queue."""
+    from online_detector import tcp_detector, udp_detector
+    _stats_counter = 0
+
     while True:
         try:
             flow = flow_queue.get(timeout=1.0)
@@ -70,8 +73,18 @@ def _inference_worker(
                  alert["src_ip"], alert["src_port"],
                  alert["dst_ip"], alert["dst_port"])
         storage.insert_flow(alert)
-        # Thread-safe put into the asyncio queue via the event loop
         loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
+
+        # Broadcast OIF health metrics every 10 flows so the dashboard
+        # Model Health panel updates in near-real-time without flooding the socket.
+        _stats_counter += 1
+        if _stats_counter % 10 == 0:
+            loop.call_soon_threadsafe(
+                alert_queue.put_nowait,
+                {"type": "stats",
+                 "tcp": tcp_detector.metrics() | {"ready": tcp_detector.is_ready},
+                 "udp": udp_detector.metrics() | {"ready": udp_detector.is_ready}},
+            )
 
 
 async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
@@ -83,7 +96,7 @@ async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
     """
     while True:
         item = await alert_queue.get()
-        if item.get("type") == "status":
+        if item.get("type") in ("status", "stats"):
             await manager.broadcast(item)
         else:
             # Stamp WebSocket send time, then strip timing from the nested dict

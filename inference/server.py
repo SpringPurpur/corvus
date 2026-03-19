@@ -93,6 +93,15 @@ async def reset_baseline(protocol: str = Query(default="all")) -> dict:
     return {"ok": True, "protocol": protocol}
 
 
+@app.get("/stats")
+async def get_stats() -> dict:
+    from online_detector import tcp_detector, udp_detector
+    return {
+        "tcp": tcp_detector.metrics() | {"ready": tcp_detector.is_ready},
+        "udp": udp_detector.metrics() | {"ready": udp_detector.is_ready},
+    }
+
+
 @app.get("/flows")
 async def get_flows(
     limit: int = Query(default=200, ge=1, le=2000),
