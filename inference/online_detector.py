@@ -460,15 +460,23 @@ class MultiWindowOIF:
         # size, or fwd_iat_std=0 for all 2-packet flows). Division by 1 raw unit
         # (milliseconds, bytes, pkts/s) produces enormous deviations for any
         # non-zero value, triggering false-positive OOR scores on every flow.
-        # Floors are the minimum "meaningful" spread in each feature's units.
+        #
+        # Floors represent the expected natural IQR for each feature in normal
+        # traffic — NOT just "above zero". Setting them too small defeats the
+        # purpose: flow_duration_s floor=0.0005s means a 60ms HTTP flow deviates
+        # 120 IQR (CRITICAL). Floors must cover the typical spread of the feature
+        # across legitimate flows so that natural variation stays within 1-2 IQR.
+        #
+        # Time/IAT features: HTTP flows range 1ms–500ms duration, 1ms–100ms IAT.
+        # Rate features: 1–50 pkts/s for normal interactive traffic.
         _FLOORS: dict[str, float] = {
-            "fwd_pkts_per_sec":   0.5,    # pkts/s
-            "bwd_pkts_per_sec":   0.5,    # pkts/s
+            "fwd_pkts_per_sec":   1.0,    # pkts/s — 1 pkt/s spread is meaningful
+            "bwd_pkts_per_sec":   1.0,    # pkts/s
             "pkt_len_mean":       4.0,    # bytes
             "pkt_len_std":        4.0,    # bytes
-            "flow_duration_s":    0.0005, # 0.5 ms
-            "flow_iat_mean":      0.5,    # ms (already converted from ns)
-            "fwd_iat_std":        0.5,    # ms
+            "flow_duration_s":    0.05,   # 50 ms — covers HTTP 1ms–500ms range
+            "flow_iat_mean":      10.0,   # ms — covers typical HTTP IAT spread
+            "fwd_iat_std":        5.0,    # ms
             "init_fwd_win_bytes": 64.0,   # bytes
             "syn_flag_ratio":     0.02,
             "fwd_act_data_ratio": 0.02,
