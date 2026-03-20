@@ -7,8 +7,13 @@ Build order:
   2. docker compose up -d          (starts inference, monitor, targets, attacker)
   3. wait for /health             (inference engine ready)
   4. open dashboard in browser
+
+Flags:
+  --build   Force-rebuild Docker images before starting (use after code changes).
+            Without this flag, existing images are reused — startup is much faster.
 """
 
+import argparse
 import os
 import platform
 import subprocess
@@ -90,15 +95,24 @@ def open_dashboard(url: str) -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Start the Corvus IDS stack.")
+    parser.add_argument(
+        "--build", action="store_true",
+        help="Rebuild Docker images before starting (needed after source changes).",
+    )
+    args = parser.parse_args()
+
     build_dashboard()
 
-    print("[launch] Starting Corvus IDS stack...")
-    subprocess.run(
-        ["docker", "--context", "default", "compose", "-f", COMPOSE, "up", "-d",
-         "--build",
-         "--remove-orphans"],
-        check=True,
-    )
+    compose_cmd = ["docker", "--context", "default", "compose", "-f", COMPOSE,
+                   "up", "-d", "--remove-orphans"]
+    if args.build:
+        compose_cmd.append("--build")
+        print("[launch] Starting Corvus IDS stack (rebuilding images)...")
+    else:
+        print("[launch] Starting Corvus IDS stack (using existing images)...")
+
+    subprocess.run(compose_cmd, check=True)
 
     print("[launch] Waiting for inference engine to become healthy...")
     if not wait_healthy(HEALTH):
