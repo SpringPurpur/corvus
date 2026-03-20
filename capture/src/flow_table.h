@@ -20,10 +20,12 @@
 #define FLOW_IDLE_TIMEOUT_NS    120000000000ULL
 
 // UDP flows have no FIN/RST — without an active timeout a sustained flood
-// would accumulate silently for 120s after the last packet. 30s catches
-// floods that are still in progress and emits a partial flow for detection.
-// TCP flows are not subject to this — FIN/RST handles them correctly.
-#define FLOW_ACTIVE_TIMEOUT_NS   30000000000ULL
+// would accumulate silently for 120s after the last packet. 10s catches
+// floods that are still in progress and emits partial flows for detection.
+// TCP SYN floods also rely on this — hping3 never completes the handshake
+// so there is no FIN/RST; flows complete here rather than at the idle timeout.
+// 10s instead of 30s: smaller burst at expiry, better detection latency.
+#define FLOW_ACTIVE_TIMEOUT_NS   10000000000ULL
 
 /* Opaque table — allocate statically in main.c, pass pointer everywhere. */
 typedef struct flow_table flow_table_t;
