@@ -105,38 +105,155 @@ Settings take effect **immediately** on save — no restart required. They are p
 
 ## Running Attack Scenarios
 
-The `attacker` container (172.20.0.20) has hping3, hydra, nmap, and pre-written attack scripts:
+There are two ways to run attacks: the **scenario runner** (automated, reproducible, produces a metrics report) and **manual execution** (ad-hoc, useful during development).
+
+### Prerequisites
+
+Install the one extra host-side dependency:
 
 ```bash
-# Open a shell on the attacker
+pip install pyyaml
+```
+
+`msgpack` should already be installed from Quick Start. No other packages are needed — the runner uses only the Python standard library plus PyYAML.
+
+### Step 1 — Start the stack
+
+```bash
+python launch.py
+```
+
+Wait for the browser to open and the status bar to show the capture and models indicators as green dots.
+
+### Step 2 — Wait for baselining to complete
+
+The anomaly detectors must build a statistical baseline before detection activates. The dashboard shows a pulsing **Baselining X%** indicator in the status bar while this is running. By default:
+- TCP: 4096 flows required
+- UDP: 1024 flows required
+
+The `client_a` and `client_b` containers generate continuous background HTTP, DNS, and NTP traffic to fill this automatically. On a typical run baselining completes in 3–5 minutes.
+
+To accelerate baselining manually:
+
+```bash
+docker exec ids_client_a bash /scripts/fast_baseline.sh
+docker exec ids_client_b bash /scripts/fast_baseline.sh
+```
+
+The indicator disappears when both TCP and UDP detectors are ready.
+
+### Step 3 — Run a scenario with the orchestrator
+
+The scenario runner handles baselining, timing, ground-truth annotation, and metrics calculation automatically:
+
+```bash
+# From the repo root
+python tools/run_scenario.py scenarios/syn_flood.yml
+```
+
+The runner will:
+1. Trigger `fast_baseline.sh` on both client containers (unless `--no-baseline` is passed)
+2. Poll `GET /stats` every 5 seconds and print a live progress bar until both OIF detectors report `ready: true`
+3. Record the attack start time, run the attack script via `docker exec` (blocking until the script exits)
+4. Record the attack end time, then wait for the configured recovery window (default 120s) while monitoring scores
+5. Query `GET /flows` from the inference engine, annotate each flow as attack or benign based on source IP and time window
+6. Print a structured report to stdout and save the full results as JSON to `scenarios/results/`
+
+### Available scenarios
+
+| File | Attack type | Tool | Expected severity |
+|---|---|---|---|
+| `scenarios/syn_flood.yml` | TCP SYN flood | hping3 | CRITICAL |
+| `scenarios/udp_flood.yml` | UDP packet flood | hping3 | CRITICAL |
+| `scenarios/ssh_bruteforce.yml` | SSH credential brute-force | hydra | HIGH |
+| `scenarios/port_scan.yml` | TCP SYN port scan | nmap | HIGH |
+| `scenarios/http_flood.yml` | HTTP GET flood | ab | HIGH/CRITICAL |
+| `scenarios/slowloris.yml` | Slowloris connection exhaustion | slowhttptest | HIGH |
+| `scenarios/mixed.yml` | SYN flood → SSH brute-force (sequential) | hping3 + hydra | 2× CRITICAL events |
+
+### Reading the report
+
+```
+═══════════════════════════════════════════════════════
+  Corvus IDS — Scenario Report
+  Scenario : TCP SYN Flood
+  Run at   : 2025-03-19 14:32:07
+═══════════════════════════════════════════════════════
+
+Baseline
+  TCP flows seen       : 4312        ← flows seen before attack started
+  Baseline score p50   : 0.183       ← typical benign score (low = normal)
+
+Attack  (172.20.0.20,  8.3s)
+  Flows captured       : 1
+  First CRITICAL alert : 0.4s        ← time-to-detect from attack start
+  Peak composite score : 0.971       ← max OIF score during attack (0–1)
+  Rejection rate (est) : 100.0%      ← OIF refused to train on attack flows
+
+Recovery
+  Scores below HIGH    : 38 flows    ← flows until model returned to normal
+
+Benign traffic quality
+  False positive rate  : 0.24%       ← CRITICAL alerts on non-attacker IPs
+```
+
+**Key metrics:**
+- **First CRITICAL alert** — time-to-detect (TTD). Lower is better.
+- **Rejection rate** — fraction of attack flows the OIF refused to incorporate into its baseline. 100% means the poisoning defence was fully engaged.
+- **Recovery** — how quickly scores dropped after the attack ended. Reflects the forgetting speed of the fast window (256 flows).
+- **False positive rate** — CRITICAL alerts on benign flows during the same window. Should stay below 1–2%.
+
+Results JSON is saved to `scenarios/results/<scenario_name>_<timestamp>.json` for cross-run comparison.
+
+### CLI options
+
+```bash
+python tools/run_scenario.py scenarios/syn_flood.yml
+    --api http://localhost:8765    # inference engine URL (default: localhost:8765)
+    --no-baseline                  # skip fast_baseline.sh (use if already baselining)
+```
+
+### Manual attacks (ad-hoc)
+
+To run attacks interactively without the orchestrator, open a shell on the attacker container:
+
+```bash
 docker exec -it ids_attacker bash
-
-# Or run scripts directly
-docker exec ids_attacker bash /attacks/syn_flood.sh        # SYN flood → CRITICAL
-docker exec ids_attacker bash /attacks/udp_flood.sh        # UDP flood → CRITICAL
-docker exec ids_attacker bash /attacks/ssh_bruteforce.sh   # SSH brute force → HIGH
-docker exec ids_attacker bash /attacks/benign_http.sh      # Benign HTTP traffic
 ```
 
-**Manual commands:**
+Or run a specific script directly:
 
 ```bash
-# SYN flood
-hping3 --syn --flood -p 80 172.20.0.10
+# Attack scripts: arg1=target, arg2=port, arg3=packet count
+docker exec ids_attacker bash /attacks/syn_flood.sh 172.20.0.10 80 5000
+docker exec ids_attacker bash /attacks/udp_flood.sh 172.20.0.10 53 5000
+docker exec ids_attacker bash /attacks/ssh_bruteforce.sh
+docker exec ids_attacker bash /attacks/port_scan.sh 172.20.0.10 1-1000 500
+docker exec ids_attacker bash /attacks/http_flood.sh http://172.20.0.10/ 10000 50
+docker exec ids_attacker bash /attacks/slowloris.sh http://172.20.0.10 200 60
 
-# UDP flood
-hping3 --udp --flood -p 53 172.20.0.10
-
-# SSH brute force
+# Raw commands
+hping3 --syn --count 5000 -p 80 172.20.0.10
+hping3 --udp --count 5000 -p 53 172.20.0.10
 hydra -l testuser -P /usr/share/wordlists/rockyou.txt ssh://172.20.0.11:2222 -t 4
-
-# Benign HTTP
-curl http://172.20.0.10/
-curl http://172.20.0.10/medium.bin
-curl http://172.20.0.10/large.bin
+nmap -sS -p 1-1000 --max-rate 500 172.20.0.10
+ab -n 10000 -c 50 http://172.20.0.10/
+slowhttptest -c 200 -H -i 10 -r 50 -t GET -u http://172.20.0.10 -x 24 -p 60
 ```
 
-**Baselining note:** The anomaly detectors require a warmup period before alerts appear (4096 TCP flows, 1024 UDP flows by default). The dashboard shows a pulsing **Baselining X%** indicator. Client containers `client_a` and `client_b` generate continuous normal traffic to fill this quickly. Run `docker exec ids_client_a bash /scripts/fast_baseline.sh` for accelerated baselining.
+Alerts appear in the dashboard in real time. Click any row to see the OIF window scores, path attribution, and LLM explanation.
+
+### Resetting after an attack
+
+If attack flows contaminated the baseline (scores remain elevated after the attack ends), reset the detectors from the Settings panel (⚙ button → Reset Baseline) or via the API:
+
+```bash
+curl -X POST http://localhost:8765/baseline/reset?protocol=TCP
+curl -X POST http://localhost:8765/baseline/reset?protocol=UDP
+curl -X POST http://localhost:8765/baseline/reset?protocol=all
+```
+
+This discards the trained OIF models and restarts baselining from zero.
 
 ---
 
@@ -210,11 +327,16 @@ make -j$(nproc)
 
 ### Full stack rebuild
 
+By default `launch.py` reuses existing Docker images for a fast startup. Pass `--build` to force a rebuild after changing source files:
+
 ```bash
-python launch.py    # rebuilds dashboard; Docker rebuilds images if Dockerfiles changed
+python launch.py           # fast — reuses existing images
+python launch.py --build   # rebuilds images (needed after changes to capture/, inference/, or attacker/)
 ```
 
-To force a full image rebuild:
+The dashboard build step has its own staleness check and only reruns when source files in `dashboard/src/` are newer than the last `dist/` output — it is unaffected by `--build`.
+
+To force a full image rebuild without the cache:
 
 ```bash
 docker --context default compose down
