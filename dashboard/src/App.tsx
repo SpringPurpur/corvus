@@ -25,7 +25,13 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [, forceRender] = useState(0)
 
-  const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory } = useAlerts()
+  const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory, clearAlerts } = useAlerts()
+
+  const handleClearLogs = () => {
+    fetch('/flows', { method: 'DELETE' }).catch(() => {})
+    clearAlerts()
+    setSelected(null)
+  }
 
   useEffect(() => {
     fetch('/config').then(r => r.json()).then(setConfig).catch(() => {})
@@ -58,6 +64,7 @@ export default function App() {
         baselining={baselining}
         baselineProgress={baselineProgress}
         onSettings={() => setShowSettings(true)}
+        onClearLogs={handleClearLogs}
       />
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}

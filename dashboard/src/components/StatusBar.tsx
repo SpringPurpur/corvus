@@ -9,6 +9,7 @@ interface Props {
   baselining: boolean
   baselineProgress: number
   onSettings: () => void
+  onClearLogs: () => void
 }
 
 function Dot({ on, label }: { on: boolean; label: string }) {
@@ -25,7 +26,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, onSettings }: Props) {
+export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, onSettings, onClearLogs }: Props) {
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
@@ -43,6 +44,14 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span>TCP alerts: <span className="text-foreground font-medium">{tcpCount}</span></span>
         <span>UDP alerts: <span className="text-foreground font-medium">{udpCount}</span></span>
+        <button
+          onClick={onClearLogs}
+          title="Clear stored flow logs"
+          className="ml-1 text-muted-foreground hover:text-red-400 transition-colors text-xs leading-none"
+          aria-label="Clear logs"
+        >
+          Clear logs
+        </button>
         <button
           onClick={onSettings}
           title="Detection settings"

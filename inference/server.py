@@ -117,6 +117,12 @@ async def get_flows(
     )
 
 
+@app.delete("/flows")
+async def delete_flows() -> dict:
+    n = storage.clear_flows()
+    return {"deleted": n}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await handle_websocket(ws, _alert_queue, _llm_handler)

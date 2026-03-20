@@ -25,6 +25,7 @@ interface AlertState {
 interface UseAlertsReturn extends AlertState {
   handleMessage: (msg: WsMessage) => void
   loadHistory: () => void
+  clearAlerts: () => void
 }
 
 export function useAlerts(): UseAlertsReturn {
@@ -100,5 +101,9 @@ export function useAlerts(): UseAlertsReturn {
     })
   }, [])
 
-  return { ...state, handleMessage, loadHistory }
+  const clearAlerts = useCallback(() => {
+    setState(s => ({ ...s, tcp: [], udp: [] }))
+  }, [])
+
+  return { ...state, handleMessage, loadHistory, clearAlerts }
 }

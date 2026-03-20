@@ -107,6 +107,16 @@ def insert_flow(alert: dict) -> None:
             log.warning("Failed to insert flow %s", alert.get("flow_id"), exc_info=True)
 
 
+def clear_flows() -> int:
+    """Delete all rows from the flows table. Returns the number of rows deleted."""
+    if _conn is None:
+        return 0
+    with _write_lock:
+        cur = _conn.execute("DELETE FROM flows")
+        _conn.commit()
+        return cur.rowcount
+
+
 def query_flows(
     limit: int = 200,
     proto: str | None = None,
