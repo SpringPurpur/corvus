@@ -111,7 +111,11 @@ async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
 async def _run(args: argparse.Namespace) -> None:
     loop = asyncio.get_running_loop()
 
-    flow_queue: queue.Queue = queue.Queue(maxsize=4096)
+    # Unbounded queue — Thread 1 (socket reader) must never block on put().
+    # A size limit causes blocking which backs up the Unix socket buffer and
+    # then the C ring buffer, creating a latency cascade under flood load.
+    # Memory cost is negligible: ~500 bytes × worst-case 50k queued flows ≈ 25 MB.
+    flow_queue: queue.Queue = queue.Queue()
     alert_queue: asyncio.Queue = asyncio.Queue()
 
     storage.init_db()
