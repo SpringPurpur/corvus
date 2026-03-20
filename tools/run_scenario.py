@@ -115,6 +115,12 @@ def trigger_fast_baseline(client_a: str = "ids_client_a", client_b: str = "ids_c
 
 # ── Metrics computation ───────────────────────────────────────────────────────
 
+def _involves_attacker(flow: dict, attacker_ip: str) -> bool:
+    # Flow keys are normalised (lower IP → src_ip), so the attacker can appear
+    # in either src_ip or dst_ip depending on which side has the lower address.
+    return flow.get("src_ip") == attacker_ip or flow.get("dst_ip") == attacker_ip
+
+
 def compute_metrics(
     all_flows: list[dict],
     attacker_ip: str,
@@ -124,10 +130,10 @@ def compute_metrics(
     threshold_critical: float = 0.75,
 ) -> dict:
     attack_flows  = [f for f in all_flows
-                     if f["src_ip"] == attacker_ip
+                     if _involves_attacker(f, attacker_ip)
                      and t_attack_start <= f["ts"] <= t_attack_end]
     benign_flows  = [f for f in all_flows
-                     if not (f["src_ip"] == attacker_ip
+                     if not (_involves_attacker(f, attacker_ip)
                              and t_attack_start <= f["ts"] <= t_attack_end)]
     post_flows    = [f for f in all_flows if f["ts"] > t_attack_end]
 
