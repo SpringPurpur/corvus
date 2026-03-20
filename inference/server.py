@@ -104,12 +104,17 @@ async def get_stats() -> dict:
 
 @app.get("/flows")
 async def get_flows(
-    limit: int = Query(default=200, ge=1, le=2000),
+    limit: int = Query(default=200, ge=1, le=50000),
     proto: Optional[str] = Query(default=None),
     label: Optional[str] = Query(default=None),
     src_ip: Optional[str] = Query(default=None),
+    ts_from: Optional[float] = Query(default=None),
+    ts_to: Optional[float] = Query(default=None),
 ) -> list:
-    return storage.query_flows(limit=limit, proto=proto, label=label, src_ip=src_ip)
+    return storage.query_flows(
+        limit=limit, proto=proto, label=label,
+        src_ip=src_ip, ts_from=ts_from, ts_to=ts_to,
+    )
 
 
 @app.websocket("/ws")
