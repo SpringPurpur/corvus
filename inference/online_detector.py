@@ -509,28 +509,35 @@ class MultiWindowOIF:
                 self._complete_baseline()
             return None
 
-        x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
-        x_dict   = _to_oif_dict(x_scaled, self.feature_names)
-
-        scores    = tuple(m.score_one(x_dict) for m in self._models)
-        composite = sum(w * s for w, s in zip(self._WEIGHTS, scores))
-
-        # OOR augmentation: OIF trees give score ≈ 0.5 to any point that falls
-        # outside the bounding box they were trained on (it follows the deepest
-        # leaf through every split rather than being isolated early). We override
-        # this with an out-of-range score derived from the L∞ deviation in
-        # RobustScaler space so that extreme outliers — floods, scans, Slowloris —
-        # are flagged and blocked from entering the training window.
+        x_scaled      = self._scaler.transform(raw.reshape(1, -1))[0]
         max_deviation = float(np.max(np.abs(x_scaled)))
         oor_score     = 1.0 - math.exp(-max_deviation / self.OOR_SCALE)
-        composite     = max(composite, oor_score)
 
-        window_scores = WindowScores(
-            fast=scores[0], medium=scores[1], slow=scores[2],
-            composite=composite,
-        )
-
-        attribution = self._attribute(x_dict, x_scaled, raw)
+        if oor_score >= self.TRAIN_THRESHOLD:
+            # Fast path: extreme outlier determined by the OOR term alone.
+            # Skip the 96-tree OIF traversal — it adds nothing for points this
+            # far outside the training bounding box, and avoiding it keeps
+            # queue drain time low during flood bursts (~0.3ms vs ~8ms per flow).
+            # Attribution is a single out-of-range entry naming the worst feature.
+            worst_feat = self.feature_names[int(np.argmax(np.abs(x_scaled)))]
+            window_scores = WindowScores(fast=oor_score, medium=oor_score,
+                                         slow=oor_score, composite=oor_score)
+            attribution = [{
+                "feature":  worst_feat,
+                "score":    1.0,
+                "value":    float(raw[self.feature_names.index(worst_feat)]),
+                "baseline": self.baseline_stats().get(worst_feat, {}),
+            }]
+        else:
+            # Normal path: full OIF scoring + path-depth attribution.
+            x_dict    = _to_oif_dict(x_scaled, self.feature_names)
+            scores    = tuple(m.score_one(x_dict) for m in self._models)
+            composite = max(sum(w * s for w, s in zip(self._WEIGHTS, scores)), oor_score)
+            window_scores = WindowScores(
+                fast=scores[0], medium=scores[1], slow=scores[2],
+                composite=composite,
+            )
+            attribution = self._attribute(x_dict, x_scaled, raw)
 
         self._n_seen += 1
         self._score_buf.append(composite)
