@@ -218,6 +218,7 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
         log.info("Flow received: proto=%d src=%s:%d dst=%s:%d pkts=%d",
                  d["protocol"], d["src_ip"], d["src_port"],
                  d["dst_ip"], d["dst_port"], d["tot_pkts"])
+
         out_queue.put(d)
 
     log.debug("Capture engine disconnected")
