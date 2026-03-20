@@ -384,6 +384,17 @@ class MultiWindowOIF:
     # traffic from shifting the model's definition of normal.
     TRAIN_THRESHOLD = 0.60
 
+    # Scale factor for the out-of-range (OOR) augmentation score.
+    # OIF trees assign paths of maximum depth to points outside their training
+    # bounding box, producing a score ≈ 0.5 that falls below TRAIN_THRESHOLD.
+    # The OOR term catches this regime: oor_score = 1 - exp(-deviation/OOR_SCALE),
+    # where deviation = max |x_scaled[i]| (L∞ norm in RobustScaler space, unit = IQR).
+    # At OOR_SCALE=10: deviation ≥ 9.2 IQR → oor_score ≥ 0.60 (training rejected);
+    #                  deviation ≥ 15 IQR → oor_score ≥ 0.78 (CRITICAL).
+    # Normal traffic rarely exceeds 3 IQR on any single feature; volumetric
+    # floods produce deviations of thousands of IQR.
+    OOR_SCALE = 10.0
+
     # Save to disk every N trained flows so a mid-session restart loses at
     # most this many flows' worth of learned structure.
     _SAVE_INTERVAL = 200
@@ -504,6 +515,16 @@ class MultiWindowOIF:
         scores    = tuple(m.score_one(x_dict) for m in self._models)
         composite = sum(w * s for w, s in zip(self._WEIGHTS, scores))
 
+        # OOR augmentation: OIF trees give score ≈ 0.5 to any point that falls
+        # outside the bounding box they were trained on (it follows the deepest
+        # leaf through every split rather than being isolated early). We override
+        # this with an out-of-range score derived from the L∞ deviation in
+        # RobustScaler space so that extreme outliers — floods, scans, Slowloris —
+        # are flagged and blocked from entering the training window.
+        max_deviation = float(np.max(np.abs(x_scaled)))
+        oor_score     = 1.0 - math.exp(-max_deviation / self.OOR_SCALE)
+        composite     = max(composite, oor_score)
+
         window_scores = WindowScores(
             fast=scores[0], medium=scores[1], slow=scores[2],
             composite=composite,
@@ -523,7 +544,7 @@ class MultiWindowOIF:
         else:
             self._n_rejected += 1
 
-        return window_scores, attribution
+        return window_scores, attribution, oor_score
 
     # ── path-depth attribution ─────────────────────────────────────────────────
 
@@ -705,7 +726,7 @@ def process_flow(flow: dict) -> dict | None:
             "protocol":   proto_str,
         }
 
-    scores, attribution = result
+    scores, attribution, oor_score = result
 
     # Read thresholds from the live config — analyst can adjust via dashboard
     # without restarting the inference engine.
@@ -725,6 +746,7 @@ def process_flow(flow: dict) -> dict | None:
             "medium":    scores.medium,
             "slow":      scores.slow,
             "composite": scores.composite,
+            "oor":       oor_score,   # out-of-range component; dominates for floods/scans
         },
         "verdict":     severity,
         "attribution": attribution,

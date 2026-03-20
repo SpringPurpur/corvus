@@ -52,6 +52,7 @@ def init_db() -> None:
             score_medium REAL,
             score_slow   REAL,
             score_comp   REAL,
+            score_oor    REAL,
             attribution  TEXT,
             shap         TEXT
         );
@@ -60,6 +61,11 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_proto  ON flows(proto);
         CREATE INDEX IF NOT EXISTS idx_label  ON flows(label);
     """)
+    # Schema migration: add score_oor if upgrading an existing DB that predates it.
+    cols = {row[1] for row in _conn.execute("PRAGMA table_info(flows)").fetchall()}
+    if "score_oor" not in cols:
+        _conn.execute("ALTER TABLE flows ADD COLUMN score_oor REAL")
+        log.info("Migrated flows table: added score_oor column")
     _conn.commit()
     log.info("SQLite DB ready at %s", DB_PATH)
 
@@ -80,9 +86,9 @@ def insert_flow(alert: dict) -> None:
                     (flow_id, ts, src_ip, dst_ip, src_port, dst_port,
                      proto, duration, fwd_pkts,
                      label, severity, confidence,
-                     score_fast, score_medium, score_slow, score_comp,
+                     score_fast, score_medium, score_slow, score_comp, score_oor,
                      attribution, shap)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     alert["flow_id"], alert["ts"],
@@ -91,6 +97,7 @@ def insert_flow(alert: dict) -> None:
                     alert["proto"], alert["duration"], alert["fwd_pkts"],
                     v.get("label", ""), v.get("severity", ""), v.get("confidence", 0.0),
                     s.get("fast"), s.get("medium"), s.get("slow"), s.get("composite"),
+                    s.get("oor"),
                     json.dumps(alert.get("attribution", [])),
                     json.dumps(alert.get("shap", [])),
                 ),
@@ -144,7 +151,7 @@ def query_flows(
         SELECT flow_id, ts, src_ip, dst_ip, src_port, dst_port,
                proto, duration, fwd_pkts,
                label, severity, confidence,
-               score_fast, score_medium, score_slow, score_comp,
+               score_fast, score_medium, score_slow, score_comp, score_oor,
                attribution, shap
         FROM flows
         {where}
@@ -161,7 +168,7 @@ def _row_to_alert(row: tuple) -> dict:
     (flow_id, ts, src_ip, dst_ip, src_port, dst_port,
      proto, duration, fwd_pkts,
      label, severity, confidence,
-     fast, medium, slow, comp,
+     fast, medium, slow, comp, oor,
      attribution_json, shap_json) = row
 
     return {
@@ -184,6 +191,7 @@ def _row_to_alert(row: tuple) -> dict:
             "medium":    medium,
             "slow":      slow,
             "composite": comp,
+            "oor":       oor,
         },
         "attribution": json.loads(attribution_json or "[]"),
     }
