@@ -48,10 +48,20 @@ def _get(url: str) -> dict:
         return json.loads(r.read())
 
 
-def _get_flows(api: str, src_ip: str | None = None, limit: int = 2000) -> list[dict]:
+def _get_flows(
+    api: str,
+    src_ip: str | None = None,
+    limit: int = 50000,
+    ts_from: float | None = None,
+    ts_to: float | None = None,
+) -> list[dict]:
     url = f"{api}/flows?limit={limit}"
     if src_ip:
         url += f"&src_ip={src_ip}"
+    if ts_from is not None:
+        url += f"&ts_from={ts_from}"
+    if ts_to is not None:
+        url += f"&ts_to={ts_to}"
     return _get(url)
 
 
@@ -327,16 +337,67 @@ def main() -> None:
         print(f"\n[recovery] Monitoring for {monitor_s}s…")
         time.sleep(monitor_s)
 
+    # ── Wait for ring buffer to drain before querying ──────────────────────────
+    # The SYN flood (and any pre-existing ring buffer backlog) causes flows to
+    # arrive in Python long after their capture timestamp. Flows are only written
+    # to SQLite once processed, so querying immediately after monitoring misses
+    # flows still in the queue.
+    #
+    # Strategy: measure background flow rate (flows/s before the attack), then
+    # after monitoring, poll until the processing rate drops back to within 20%
+    # of that baseline for 3 consecutive intervals — meaning the burst has drained.
+    background_rate = (stats_before["tcp"].get("n_seen", 0) +
+                       stats_before["udp"].get("n_seen", 0))
+
+    # Sample rate over a short pre-query window to get flows/s
+    time.sleep(5)
+    try:
+        s_sample = _get_stats(args.api)
+        sample_total = s_sample["tcp"].get("n_seen", 0) + s_sample["udp"].get("n_seen", 0)
+        background_rate_per_s = (sample_total - background_rate) / (monitor_s + 5)
+    except Exception:
+        background_rate_per_s = 50   # safe fallback
+
+    background_rate_per_s = max(background_rate_per_s, 1)
+
+    print(f"\n[drain] Background rate: {background_rate_per_s:.1f} flows/s. "
+          f"Waiting for queue to drain…")
+
+    prev_seen = sample_total
+    stable_count = 0
+    poll_interval = 5
+    for _ in range(72):   # max 72 × 5s = 6 minutes
+        time.sleep(poll_interval)
+        try:
+            s = _get_stats(args.api)
+            cur_seen = s["tcp"].get("n_seen", 0) + s["udp"].get("n_seen", 0)
+        except Exception:
+            continue
+        rate = (cur_seen - prev_seen) / poll_interval
+        prev_seen = cur_seen
+        print(f"  [drain] current rate: {rate:.1f} flows/s  "
+              f"(baseline: {background_rate_per_s:.1f})")
+        if rate <= background_rate_per_s * 1.2:
+            stable_count += 1
+            if stable_count >= 3:
+                break
+        else:
+            stable_count = 0
+
+    print("[drain] Queue stable — proceeding to query.\n")
+
     stats_after = _get_stats(args.api)
 
     # ── Query flows ────────────────────────────────────────────────────────────
     window_start = t_attack_start - 120   # include 2min of benign pre-attack context
     window_end   = t_attack_end + monitor_s
 
-    print("\n[report] Querying flow database…")
+    print("[report] Querying flow database…")
     try:
-        raw = _get_flows(args.api, limit=2000)
-        window_flows = [f for f in raw if window_start <= f.get("ts", 0) <= window_end]
+        # Use ts_from/ts_to so the query is bounded to the window — avoids the
+        # limit cutting off early flows when high background traffic fills the DB.
+        raw = _get_flows(args.api, ts_from=window_start, ts_to=window_end)
+        window_flows = raw   # server already filtered by time
     except Exception as e:
         print(f"[report] WARNING: could not query flows: {e}")
         window_flows = []
