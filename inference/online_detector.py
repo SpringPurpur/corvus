@@ -490,11 +490,20 @@ class MultiWindowOIF:
                          self.protocol, name, self._scaler.scale_[i], floor)
                 self._scaler.scale_[i] = floor
 
-        # Seed all models on the baseline corpus.
-        for raw in self._baseline_buffer:
-            x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
-            x_dict   = _to_oif_dict(x_scaled, self.feature_names)
-            for model in self._models:
+        # Seed each model on the tail of the baseline corpus — only the last
+        # window_size flows matter because the OIF sliding window evicts older
+        # points as new ones arrive. Seeding 4096 flows into a 256-window model
+        # performs 3840 wasted learn+unlearn cycles; seeding only the tail 256
+        # gives identical final tree state in 16× less work. This keeps the
+        # seeding step from blocking Thread 2 for several minutes.
+        X_scaled = np.array([
+            self._scaler.transform(raw.reshape(1, -1))[0]
+            for raw in self._baseline_buffer
+        ])
+        for model, window_size in zip(self._models, self._WINDOWS):
+            tail = X_scaled[-window_size:]
+            for x_scaled_row in tail:
+                x_dict = _to_oif_dict(x_scaled_row, self.feature_names)
                 model.learn_one(x_dict)
 
         self._baseline_complete = True
