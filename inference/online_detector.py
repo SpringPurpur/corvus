@@ -519,6 +519,7 @@ class MultiWindowOIF:
             # far outside the training bounding box, and avoiding it keeps
             # queue drain time low during flood bursts (~0.3ms vs ~8ms per flow).
             # Attribution is a single out-of-range entry naming the worst feature.
+            composite  = oor_score
             worst_feat = self.feature_names[int(np.argmax(np.abs(x_scaled)))]
             window_scores = WindowScores(fast=oor_score, medium=oor_score,
                                          slow=oor_score, composite=oor_score)
@@ -543,6 +544,7 @@ class MultiWindowOIF:
         self._score_buf.append(composite)
 
         if composite < self.TRAIN_THRESHOLD:
+            # Only reachable via the normal path — x_dict is defined.
             for model in self._models:
                 model.learn_one(x_dict)
             self._n_trained += 1
