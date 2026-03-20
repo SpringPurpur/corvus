@@ -48,8 +48,8 @@ TCP_IF_FEATURES: list[tuple[str, callable]] = [
     ("pkt_len_mean",       lambda r: r["pkt_len_mean"]),
     ("pkt_len_std",        lambda r: r["pkt_len_std"]),
     ("flow_duration_s",    lambda r: r["flow_duration_s"]),
-    ("flow_iat_mean",      lambda r: r["flow_iat_mean"]),
-    ("fwd_iat_std",        lambda r: r["fwd_iat_std"]),
+    ("flow_iat_mean",      lambda r: r["flow_iat_mean"] / 1_000_000.0),  # ns → ms
+    ("fwd_iat_std",        lambda r: r["fwd_iat_std"]   / 1_000_000.0),  # ns → ms
     ("init_fwd_win_bytes", lambda r: float(r["init_fwd_win_bytes"])),
     ("syn_flag_ratio",     lambda r: r["syn_flag_ratio"]),
     ("fwd_act_data_ratio", lambda r: r["fwd_act_data_pkts"] / max(r["tot_fwd_pkts"], 1)),
@@ -61,8 +61,8 @@ UDP_IF_FEATURES: list[tuple[str, callable]] = [
     ("pkt_len_mean",      lambda r: r["pkt_len_mean"]),
     ("pkt_len_std",       lambda r: r["pkt_len_std"]),
     ("flow_duration_s",   lambda r: r["flow_duration_s"]),
-    ("flow_iat_mean",     lambda r: r["flow_iat_mean"]),
-    ("fwd_iat_std",       lambda r: r["fwd_iat_std"]),
+    ("flow_iat_mean",     lambda r: r["flow_iat_mean"] / 1_000_000.0),  # ns → ms
+    ("fwd_iat_std",       lambda r: r["fwd_iat_std"]   / 1_000_000.0),  # ns → ms
     ("down_up_ratio",     lambda r: r["tot_bwd_bytes"] / max(r["tot_fwd_bytes"], 1)),
     ("bwd_pkt_len_max",   lambda r: float(r["bwd_pkt_len_max"])),
 ]
@@ -380,20 +380,23 @@ class MultiWindowOIF:
     _WINDOWS = (256, 1024, 4096)
     _WEIGHTS = (0.20, 0.30, 0.50)
 
-    # Flows scoring above this threshold are not trained on — prevents attack
-    # traffic from shifting the model's definition of normal.
-    TRAIN_THRESHOLD = 0.60
+    # Flows scoring at or above this threshold are withheld from training —
+    # prevents attack traffic from shifting the model's definition of normal.
+    # Set above threshold_high (0.60) so that borderline HIGH flows are still
+    # trained on, preventing model drift when false positives occur.
+    TRAIN_THRESHOLD = 0.72
 
     # Scale factor for the out-of-range (OOR) augmentation score.
     # OIF trees assign paths of maximum depth to points outside their training
     # bounding box, producing a score ≈ 0.5 that falls below TRAIN_THRESHOLD.
     # The OOR term catches this regime: oor_score = 1 - exp(-deviation/OOR_SCALE),
     # where deviation = max |x_scaled[i]| (L∞ norm in RobustScaler space, unit = IQR).
-    # At OOR_SCALE=10: deviation ≥ 9.2 IQR → oor_score ≥ 0.60 (training rejected);
-    #                  deviation ≥ 15 IQR → oor_score ≥ 0.78 (CRITICAL).
-    # Normal traffic rarely exceeds 3 IQR on any single feature; volumetric
-    # floods produce deviations of thousands of IQR.
-    OOR_SCALE = 10.0
+    # At OOR_SCALE=25: deviation ≥ 22.9 IQR → oor_score ≥ 0.60 (HIGH);
+    #                  deviation ≥ 34.6 IQR → oor_score ≥ 0.75 (CRITICAL).
+    # Volumetric floods deviate thousands of IQR on rate features — still CRITICAL.
+    # Scale=10 was too aggressive: tight-IQR features (uniform baseline) triggered
+    # false positives at 9 IQR, which is reachable by natural traffic variation.
+    OOR_SCALE = 25.0
 
     # Save to disk every N trained flows so a mid-session restart loses at
     # most this many flows' worth of learned structure.
@@ -411,7 +414,7 @@ class MultiWindowOIF:
                 feature_names=feature_names,
                 n_trees=32,
                 window_size=w,
-                max_leaf_samples=32,
+                max_leaf_samples=8,
                 seed=42 + i,
             )
             for i, w in enumerate(self._WINDOWS)
@@ -451,6 +454,33 @@ class MultiWindowOIF:
         X = np.array(self._baseline_buffer)
         self._scaler.fit(X)
         self._scaler_fitted = True
+
+        # Prevent zero-IQR collapse: sklearn sets scale_=1.0 when a feature
+        # has zero IQR in the baseline (e.g., every flow has the same TCP window
+        # size, or fwd_iat_std=0 for all 2-packet flows). Division by 1 raw unit
+        # (milliseconds, bytes, pkts/s) produces enormous deviations for any
+        # non-zero value, triggering false-positive OOR scores on every flow.
+        # Floors are the minimum "meaningful" spread in each feature's units.
+        _FLOORS: dict[str, float] = {
+            "fwd_pkts_per_sec":   0.5,    # pkts/s
+            "bwd_pkts_per_sec":   0.5,    # pkts/s
+            "pkt_len_mean":       4.0,    # bytes
+            "pkt_len_std":        4.0,    # bytes
+            "flow_duration_s":    0.0005, # 0.5 ms
+            "flow_iat_mean":      0.5,    # ms (already converted from ns)
+            "fwd_iat_std":        0.5,    # ms
+            "init_fwd_win_bytes": 64.0,   # bytes
+            "syn_flag_ratio":     0.02,
+            "fwd_act_data_ratio": 0.02,
+            "down_up_ratio":      0.02,
+            "bwd_pkt_len_max":    4.0,    # bytes
+        }
+        for i, name in enumerate(self.feature_names):
+            floor = _FLOORS.get(name, 1.0)
+            if self._scaler.scale_[i] < floor:
+                log.info("[%s OIF] scale floor applied: %s  %.4g → %.4g",
+                         self.protocol, name, self._scaler.scale_[i], floor)
+                self._scaler.scale_[i] = floor
 
         # Seed all models on the baseline corpus.
         for raw in self._baseline_buffer:
@@ -513,6 +543,16 @@ class MultiWindowOIF:
         max_deviation = float(np.max(np.abs(x_scaled)))
         oor_score     = 1.0 - math.exp(-max_deviation / self.OOR_SCALE)
 
+        if oor_score >= 0.55 or log.isEnabledFor(logging.DEBUG):
+            # Log which feature is driving the OOR score — essential for
+            # diagnosing false positives. At INFO level only fires when oor
+            # is near-threshold; at DEBUG level fires for every flow.
+            worst_i   = int(np.argmax(np.abs(x_scaled)))
+            worst_dev = float(np.abs(x_scaled[worst_i]))
+            log.debug("[%s OIF] oor=%.3f worst=%s dev=%.1f IQR",
+                      self.protocol, oor_score,
+                      self.feature_names[worst_i], worst_dev)
+
         if oor_score >= self.TRAIN_THRESHOLD:
             # Fast path: extreme outlier determined by the OOR term alone.
             # Skip the 96-tree OIF traversal — it adds nothing for points this
@@ -538,7 +578,7 @@ class MultiWindowOIF:
                 fast=scores[0], medium=scores[1], slow=scores[2],
                 composite=composite,
             )
-            attribution = self._attribute(x_dict, x_scaled, raw)
+            attribution = self._attribute(x_dict, raw)
 
         self._n_seen += 1
         self._score_buf.append(composite)
@@ -559,9 +599,8 @@ class MultiWindowOIF:
 
     def _attribute(
         self,
-        x_dict:  dict[str, float],
-        x_scaled: np.ndarray,
-        x_raw:    np.ndarray,
+        x_dict: dict[str, float],
+        x_raw:  np.ndarray,
     ) -> list[dict]:
         """Depth-weighted attribution over all trees and all window models.
 
