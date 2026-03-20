@@ -163,7 +163,8 @@ def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
         "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,
         "syn_flag_ratio":    r.syn_flag_ratio,
         "psh_flag_ratio":    r.psh_flag_ratio,
-        # latency measurement — timestamp of the last packet in the flow (C CLOCK_REALTIME ns)
+        # capture timestamps — nanoseconds since Unix epoch (C CLOCK_REALTIME)
+        "first_pkt_ns":      r.first_pkt_ns,
         "last_pkt_ns":       r.last_pkt_ns,
     }
 

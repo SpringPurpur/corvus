@@ -201,7 +201,7 @@ class Classifier:
         proto = flow["protocol"]
         return {
             "flow_id":     str(uuid.uuid4()),
-            "ts":          time.time(),
+            "ts":          flow["first_pkt_ns"] / 1e9,
             "src_ip":      flow["src_ip"],
             "dst_ip":      flow["dst_ip"],
             "src_port":    flow["src_port"],
