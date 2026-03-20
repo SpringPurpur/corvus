@@ -105,10 +105,14 @@ def query_flows(
     proto: str | None = None,
     label: str | None = None,
     src_ip: str | None = None,
+    ts_from: float | None = None,
+    ts_to: float | None = None,
 ) -> list[dict]:
-    """Return recent flows as alert dicts, newest first.
+    """Return flows as alert dicts, newest first.
 
-    All filter params are optional and combinable. Called from the FastAPI thread.
+    All filter params are optional and combinable. ts_from/ts_to are Unix
+    timestamps; use them in the scenario runner to bound the query to the
+    attack window so the limit doesn't cut off early flows.
     """
     if _conn is None:
         return []
@@ -125,6 +129,12 @@ def query_flows(
     if src_ip:
         clauses.append("src_ip = ?")
         params.append(src_ip)
+    if ts_from is not None:
+        clauses.append("ts >= ?")
+        params.append(ts_from)
+    if ts_to is not None:
+        clauses.append("ts <= ?")
+        params.append(ts_to)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     params.append(limit)
