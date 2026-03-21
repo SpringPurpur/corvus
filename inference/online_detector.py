@@ -675,13 +675,17 @@ class MultiWindowOIF:
         buf = list(self._score_buf)
         arr = np.array(buf) if buf else np.array([0.0])
         return {
-            "n_seen":         self._n_seen,
-            "n_trained":      self._n_trained,
-            "n_rejected":     self._n_rejected,
-            "rejection_rate": self._n_rejected / max(self._n_seen, 1),
-            "score_p50":      float(np.percentile(arr, 50)),
-            "score_p95":      float(np.percentile(arr, 95)),
-            "score_recent":   buf[-20:],   # last 20 scores for sparkline
+            "n_seen":           self._n_seen,
+            "n_trained":        self._n_trained,
+            "n_rejected":       self._n_rejected,
+            "rejection_rate":   self._n_rejected / max(self._n_seen, 1),
+            "score_p50":        float(np.percentile(arr, 50)),
+            "score_p95":        float(np.percentile(arr, 95)),
+            "score_recent":     buf[-20:],   # last 20 scores for sparkline
+            # Baseline progress — useful when ready=False so callers can show
+            # how many flows have been collected vs the target.
+            "n_baseline":       len(self._baseline_buffer),
+            "n_baseline_target": self.BASELINE_FLOWS,
         }
 
     # ── baseline statistics for dashboard context ──────────────────────────────
@@ -793,20 +797,22 @@ def process_flow(flow: dict) -> dict | None:
         log.debug("Unsupported protocol %d — skipping", proto)
         return None
 
-    # Protocol-specific minimum duration filter.
+    # Protocol-specific degenerate-flow filter.
     #
-    # TCP: skip flows shorter than 5ms. Docker infrastructure flows (health-check
-    # SYN+RST, keepalive ACK exchanges) complete in 1–5ms with uniform packet sizes
-    # → pkt_len_std ≈ 0. When these dominate the baseline, real HTTP flows
-    # (pkt_len_std 200–600 bytes) look anomalous. Legitimate TCP application flows
-    # (HTTP, SSH) take at least 5ms even on a loopback Docker bridge due to RTT +
-    # server processing. CICFlowMeter similarly excludes degenerate-duration flows.
+    # TCP: skip flows with fewer than 4 total packets. On a co-located Docker bridge
+    # the wire speed is ~1 Gbps — even a 100 KB download completes in < 1 ms, so
+    # duration-based filtering would block all legitimate HTTP flows. Packet count
+    # is a reliable discriminator instead:
+    #   < 4 pkts: SYN+RST stubs, SYN+SYN-ACK half-connections, residual FIN packets,
+    #             keepalive ACK pairs — all have uniform (often zero) pkt_len_std and
+    #             poison the scaler's median, making real HTTP flows look anomalous.
+    #   ≥ 4 pkts: any complete TCP data exchange (HTTP ≥ 7 pkts, SSH ≥ 10 pkts).
     #
-    # UDP: skip flows shorter than 0.1ms. Single-packet artifacts (ICMP unreachable,
-    # misconfigured probes) complete in ~27μs. DNS queries complete in ~0.23ms and
-    # must pass so the UDP baseline can fill from real DNS traffic.
-    _MIN_DURATION = {6: 5e-3, 17: 1e-4}   # TCP: 5ms, UDP: 0.1ms
-    if flow.get("flow_duration_s", 0.0) < _MIN_DURATION.get(proto, 1e-3):
+    # UDP: skip flows shorter than 0.1 ms. DNS queries (~0.23 ms) pass; single-packet
+    #      ICMP/misfire artifacts (~27 μs) are blocked.
+    if proto == 6 and flow.get("tot_pkts", 0) < 4:
+        return None
+    if proto == 17 and flow.get("flow_duration_s", 0.0) < 1e-4:
         return None
 
     raw    = _extract(flow, features)

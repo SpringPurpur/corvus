@@ -121,12 +121,20 @@ def wait_for_ready(api: str, timeout_s: int = 360) -> dict:
             continue
 
         tcp   = stats.get("tcp", {})
-        prog  = tcp.get("n_seen", 0)
         ready = tcp.get("ready", False)
+        # During baselining n_seen=0; use n_baseline for progress instead.
+        n_base  = tcp.get("n_baseline", 0)
+        n_total = tcp.get("n_baseline_target", 0) or tcp.get("n_seen", 0)
+        prog    = n_base if not ready else n_total
 
         if prog != last_prog:
             last_prog = prog
-            status = "READY" if ready else f"{prog} flows"
+            if ready:
+                status = "READY"
+            elif n_total:
+                status = f"baselining {n_base}/{n_total}"
+            else:
+                status = f"{prog} flows"
             print(f"  TCP: {status}")
 
         if ready:
