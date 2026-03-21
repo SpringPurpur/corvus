@@ -25,6 +25,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+# Force UTF-8 stdout so Unicode characters don't crash on Windows (cp1252).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime
 from pathlib import Path
 from statistics import median, stdev
@@ -76,7 +80,7 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
     deadline = time.time() + timeout_s
     last_tcp = last_udp = 0.0
 
-    print(f"\n[baseline] Waiting for OIF detectors to warm up (timeout {timeout_s}s)…")
+    print(f"\n[baseline] Waiting for OIF detectors to warm up (timeout {timeout_s}s)...")
     while time.time() < deadline:
         try:
             stats = _get_stats(api)
@@ -103,7 +107,7 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
 
         time.sleep(5)
 
-    print(f"[baseline] WARNING: timed out after {timeout_s}s — proceeding anyway.")
+    print(f"[baseline] WARNING: timed out after {timeout_s}s -- proceeding anyway.")
     return _get_stats(api)
 
 
@@ -118,7 +122,7 @@ def docker_exec(container: str, cmd: list[str], background: bool = False) -> sub
 
 
 def trigger_fast_baseline(client_a: str = "ids_client_a", client_b: str = "ids_client_b") -> None:
-    print("[baseline] Triggering fast_baseline.sh on both clients…")
+    print("[baseline] Triggering fast_baseline.sh on both clients...")
     docker_exec(client_a, ["bash", "/scripts/fast_baseline.sh"], background=True)
     docker_exec(client_b, ["bash", "/scripts/fast_baseline.sh"], background=True)
 
@@ -220,7 +224,7 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
     m        = result["metrics"]
 
     print(f"\n{SEP}")
-    print("  Corvus IDS — Scenario Report")
+    print("  Corvus IDS - Scenario Report")
     print(f"  Scenario : {scenario['name']}")
     print(f"  Run at   : {run_at}")
     print(SEP)
@@ -228,9 +232,9 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
     tcp_b = stats_before["tcp"]
     udp_b = stats_before["udp"]
     print(f"\nBaseline")
-    print(f"  TCP flows seen       : {tcp_b.get('n_seen', '—')}")
-    print(f"  UDP flows seen       : {udp_b.get('n_seen', '—')}")
-    print(f"  Baseline score p50   : {m['pre_median']:.3f}  (σ = {m['pre_std']:.3f})")
+    print(f"  TCP flows seen       : {tcp_b.get('n_seen', '-')}")
+    print(f"  UDP flows seen       : {udp_b.get('n_seen', '-')}")
+    print(f"  Baseline score p50   : {m['pre_median']:.3f}  (std = {m['pre_std']:.3f})")
 
     print(f"\nAttack  ({scenario['attacker_ip']},  {duration:.1f}s)")
     print(f"  Flows captured       : {m['attack_flows']}")
@@ -241,7 +245,7 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
         print(f"  First CRITICAL alert : NOT DETECTED")
     print(f"  Peak composite score : {m['peak_score']:.3f}")
     print(f"  Rejection rate (est) : {m['rejection_approx']*100:.1f}%  "
-          f"(flows scored ≥ HIGH threshold)")
+          f"(flows scored >= HIGH threshold)")
 
     print(f"\nRecovery")
     if m["recovery_flows"] is not None:
@@ -257,8 +261,8 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
 
     tcp_a = stats_after["tcp"]
     print(f"\nModel state after scenario")
-    print(f"  TCP flows seen       : {tcp_a.get('n_seen', '—')}")
-    print(f"  TCP flows trained    : {tcp_a.get('n_trained', '—')}")
+    print(f"  TCP flows seen       : {tcp_a.get('n_seen', '-')}")
+    print(f"  TCP flows trained    : {tcp_a.get('n_trained', '-')}")
     print(f"  TCP rejection rate   : {tcp_a.get('rejection_rate', 0)*100:.1f}%")
 
     print(f"\n{SEP}")
@@ -305,7 +309,7 @@ def main() -> None:
     needs_udp    = scenario.get("attack", {}).get("script", "").endswith("udp_flood.sh")
 
     print(f"\n{SEP}")
-    print(f"  Corvus IDS — {scenario['name']}")
+    print(f"  Corvus IDS - {scenario['name']}")
     print(SEP)
 
     # ── Baseline ───────────────────────────────────────────────────────────────
@@ -338,7 +342,7 @@ def main() -> None:
 
         rest = phase.get("rest_s", 0)
         if rest and phase is not phases[-1]:
-            print(f"[scenario] Resting {rest}s between phases…")
+            print(f"[scenario] Resting {rest}s between phases...")
             time.sleep(rest)
 
     # Use the outer bounds of all phases for the overall attack window
@@ -347,7 +351,7 @@ def main() -> None:
 
     # ── Recovery monitoring ────────────────────────────────────────────────────
     if monitor_s > 0:
-        print(f"\n[recovery] Monitoring for {monitor_s}s…")
+        print(f"\n[recovery] Monitoring for {monitor_s}s...")
         time.sleep(monitor_s)
 
     # ── Wait for ring buffer to drain before querying ──────────────────────────
@@ -374,7 +378,7 @@ def main() -> None:
     background_rate_per_s = max(background_rate_per_s, 1)
 
     print(f"\n[drain] Background rate: {background_rate_per_s:.1f} flows/s. "
-          f"Waiting for queue to drain…")
+          f"Waiting for queue to drain...")
 
     prev_seen = sample_total
     stable_count = 0
@@ -397,7 +401,7 @@ def main() -> None:
         else:
             stable_count = 0
 
-    print("[drain] Queue stable — proceeding to query.\n")
+    print("[drain] Queue stable -- proceeding to query.\n")
 
     stats_after = _get_stats(args.api)
 
@@ -405,7 +409,7 @@ def main() -> None:
     window_start = t_attack_start - 120   # include 2min of benign pre-attack context
     window_end   = t_attack_end + monitor_s
 
-    print("[report] Querying flow database…")
+    print("[report] Querying flow database...")
     try:
         # Use ts_from/ts_to so the query is bounded to the window — avoids the
         # limit cutting off early flows when high background traffic fills the DB.

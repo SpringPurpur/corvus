@@ -24,6 +24,10 @@ import subprocess
 import sys
 import time
 import urllib.request
+
+# Force UTF-8 stdout so Unicode characters don't crash on Windows (cp1252).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime
 from pathlib import Path
 

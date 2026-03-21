@@ -19,6 +19,11 @@ import argparse
 import json
 import subprocess
 import sys
+
+# Force UTF-8 stdout so Unicode characters (em-dashes, block bars, etc.) don't
+# crash with UnicodeEncodeError on Windows where the default codec is cp1252.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import time
 import urllib.error
 import urllib.request
