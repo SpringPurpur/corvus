@@ -54,7 +54,8 @@ log "Starting — TCP: $TCP_COUNT HTTP flows, UDP: $UDP_COUNT DNS flows"
             log "TCP: $i / $TCP_COUNT"
             ssh_session
         fi
-        if (( i % 20 == 0 )); then sleep 0.1; fi
+        # No sleep — back-to-back curls fill the 4096-flow baseline in ~20s,
+        # keeping infrastructure contamination to < 0.1% of the corpus.
     done
     log "TCP done — $TCP_COUNT flows sent."
 ) &

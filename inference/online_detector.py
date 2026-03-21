@@ -793,13 +793,20 @@ def process_flow(flow: dict) -> dict | None:
         log.debug("Unsupported protocol %d — skipping", proto)
         return None
 
-    # Skip sub-millisecond flows — RST responses, immediately-refused connections,
-    # and other single-packet network artifacts. These flows have flow_duration_s ≈ 0,
-    # producing rate features of 1 pkt / 27μs = 37,000 pkts/s that corrupt the
-    # baseline distribution. They also have pkt_len_std = 0, fwd_iat_std = 0,
-    # and no inter-arrival times — the feature set is undefined for single packets.
-    # CICFlowMeter similarly excludes sub-packet flows from its output.
-    if flow.get("flow_duration_s", 0.0) < 1e-3:
+    # Protocol-specific minimum duration filter.
+    #
+    # TCP: skip flows shorter than 5ms. Docker infrastructure flows (health-check
+    # SYN+RST, keepalive ACK exchanges) complete in 1–5ms with uniform packet sizes
+    # → pkt_len_std ≈ 0. When these dominate the baseline, real HTTP flows
+    # (pkt_len_std 200–600 bytes) look anomalous. Legitimate TCP application flows
+    # (HTTP, SSH) take at least 5ms even on a loopback Docker bridge due to RTT +
+    # server processing. CICFlowMeter similarly excludes degenerate-duration flows.
+    #
+    # UDP: skip flows shorter than 0.1ms. Single-packet artifacts (ICMP unreachable,
+    # misconfigured probes) complete in ~27μs. DNS queries complete in ~0.23ms and
+    # must pass so the UDP baseline can fill from real DNS traffic.
+    _MIN_DURATION = {6: 5e-3, 17: 1e-4}   # TCP: 5ms, UDP: 0.1ms
+    if flow.get("flow_duration_s", 0.0) < _MIN_DURATION.get(proto, 1e-3):
         return None
 
     raw    = _extract(flow, features)
