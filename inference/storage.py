@@ -203,5 +203,8 @@ def _row_to_alert(row: tuple) -> dict:
             "composite": comp,
             "oor":       oor,
         },
+        # Flat alias so run_scenario.py and eval_baseline.py can use f.get("score_comp")
+        # without navigating the nested dict.
+        "score_comp":  comp,
         "attribution": json.loads(attribution_json or "[]"),
     }

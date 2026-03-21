@@ -44,7 +44,7 @@ SEP             = "═" * 55
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 def _get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=5) as r:
+    with urllib.request.urlopen(url, timeout=30) as r:
         return json.loads(r.read())
 
 
@@ -125,6 +125,19 @@ def trigger_fast_baseline(client_a: str = "ids_client_a", client_b: str = "ids_c
 
 # ── Metrics computation ───────────────────────────────────────────────────────
 
+def _score(flow: dict) -> float:
+    """Return the composite OIF score from a flow dict.
+
+    Tries the flat alias first (score_comp), then the nested path — handles
+    both the current storage format and any older snapshots.
+    """
+    return (
+        flow.get("score_comp")
+        or (flow.get("scores") or {}).get("composite")
+        or 0.0
+    )
+
+
 def _involves_attacker(flow: dict, attacker_ip: str) -> bool:
     # Flow keys are normalised (lower IP → src_ip), so the attacker can appear
     # in either src_ip or dst_ip depending on which side has the lower address.
@@ -151,13 +164,13 @@ def compute_metrics(
     ttd_s         = None
     ttd_flows_idx = None
     for i, f in enumerate(sorted(attack_flows, key=lambda x: x["ts"])):
-        if (f.get("score_comp") or 0) >= threshold_critical:
+        if _score(f) >= threshold_critical:
             ttd_s         = f["ts"] - t_attack_start
             ttd_flows_idx = i + 1
             break
 
     # Peak score during attack
-    attack_scores = [(f.get("score_comp") or 0) for f in attack_flows]
+    attack_scores = [_score(f) for f in attack_flows]
     peak_score    = max(attack_scores) if attack_scores else 0.0
 
     # Rejection rate proxy: fraction of attack flows scoring >= threshold_high
@@ -167,19 +180,19 @@ def compute_metrics(
     )
 
     # FPR — CRITICAL alerts from non-attacker IPs during the full window
-    n_fp      = sum(1 for f in benign_flows if (f.get("score_comp") or 0) >= threshold_critical)
+    n_fp      = sum(1 for f in benign_flows if _score(f) >= threshold_critical)
     fpr       = n_fp / max(len(benign_flows), 1)
 
     # Recovery — flows after attack until last CRITICAL drops below HIGH
     recovery_flows = None
     for i, f in enumerate(sorted(post_flows, key=lambda x: x["ts"])):
-        if (f.get("score_comp") or 0) < threshold_high:
+        if _score(f) < threshold_high:
             recovery_flows = i + 1
             break
 
     # Baseline quality — benign flows before the attack
     pre_flows     = [f for f in benign_flows if f["ts"] < t_attack_start]
-    pre_scores    = [(f.get("score_comp") or 0) for f in pre_flows]
+    pre_scores    = [_score(f) for f in pre_flows]
     pre_median    = median(pre_scores) if pre_scores else 0.0
     pre_std       = stdev(pre_scores)  if len(pre_scores) > 1 else 0.0
 
