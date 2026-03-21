@@ -102,6 +102,27 @@ async def get_stats() -> dict:
     }
 
 
+@app.get("/baseline/stats")
+async def get_baseline_stats() -> dict:
+    """Return the fitted scaler's median and IQR per feature for each detector.
+
+    Useful for diagnosing false positives: a feature with a very small IQR
+    (after floor application) will produce large OOR deviations for flows
+    that differ from the baseline distribution.
+    """
+    from online_detector import tcp_detector, udp_detector
+    return {
+        "tcp": {
+            "ready":    tcp_detector.is_ready,
+            "features": tcp_detector.baseline_stats(),
+        },
+        "udp": {
+            "ready":    udp_detector.is_ready,
+            "features": udp_detector.baseline_stats(),
+        },
+    }
+
+
 @app.get("/flows")
 async def get_flows(
     limit: int = Query(default=200, ge=1, le=50000),

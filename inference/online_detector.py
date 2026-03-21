@@ -469,11 +469,25 @@ class MultiWindowOIF:
         #
         # Time/IAT features: HTTP flows range 1ms–500ms duration, 1ms–100ms IAT.
         # Rate features: 1–50 pkts/s for normal interactive traffic.
+        # Floors represent the minimum believable IQR for each feature across
+        # normal application traffic — NOT just "above zero". Docker baseline
+        # periods are dominated by infrastructure traffic (health checks every
+        # 5s, DNS queries, keepalive ACKs) which collapses IQR to near zero
+        # for packet-size and rate features. A real HTTP flow with pkt_len_std=300
+        # bytes would then deviate 75 IQR against a floor-4 scale → CRITICAL.
+        #
+        # Size floors (100 bytes): normal mixed traffic spans ACKs (0 payload)
+        # to MTU-size responses — the natural IQR is 100–400 bytes. Floor at
+        # 100 keeps a 300-byte std flow within 3 IQR (INFO).
+        #
+        # Rate floors (5 pkts/s): health checks give ~0.2 pkts/s; real web
+        # sessions run 5–50 pkts/s. Floor at 5 keeps a 30-pkts/s session
+        # within 6 IQR (INFO) while a DoS at 5000 pkts/s still hits ~1000 IQR.
         _FLOORS: dict[str, float] = {
-            "fwd_pkts_per_sec":   1.0,    # pkts/s — 1 pkt/s spread is meaningful
-            "bwd_pkts_per_sec":   1.0,    # pkts/s
-            "pkt_len_mean":       4.0,    # bytes
-            "pkt_len_std":        4.0,    # bytes
+            "fwd_pkts_per_sec":   5.0,    # pkts/s — real sessions vs health-check baseline
+            "bwd_pkts_per_sec":   5.0,    # pkts/s
+            "pkt_len_mean":     100.0,    # bytes — ACK to MTU natural spread
+            "pkt_len_std":      100.0,    # bytes
             "flow_duration_s":    0.05,   # 50 ms — covers HTTP 1ms–500ms range
             "flow_iat_mean":      10.0,   # ms — covers typical HTTP IAT spread
             "fwd_iat_std":        5.0,    # ms
@@ -481,7 +495,7 @@ class MultiWindowOIF:
             "syn_flag_ratio":     0.02,
             "fwd_act_data_ratio": 0.02,
             "down_up_ratio":      0.02,
-            "bwd_pkt_len_max":    4.0,    # bytes
+            "bwd_pkt_len_max":   50.0,    # bytes
         }
         for i, name in enumerate(self.feature_names):
             floor = _FLOORS.get(name, 1.0)
@@ -765,7 +779,7 @@ def process_flow(flow: dict) -> dict | None:
     """Entry point: extract features, run MultiWindowOIF, return result dict.
 
     Returns a baselining status dict during warmup, a full result dict
-    during detection, or None for unsupported protocols.
+    during detection, or None for unsupported protocols or degenerate flows.
     """
     proto = flow["protocol"]
 
@@ -777,6 +791,15 @@ def process_flow(flow: dict) -> dict | None:
         features = UDP_IF_FEATURES
     else:
         log.debug("Unsupported protocol %d — skipping", proto)
+        return None
+
+    # Skip sub-millisecond flows — RST responses, immediately-refused connections,
+    # and other single-packet network artifacts. These flows have flow_duration_s ≈ 0,
+    # producing rate features of 1 pkt / 27μs = 37,000 pkts/s that corrupt the
+    # baseline distribution. They also have pkt_len_std = 0, fwd_iat_std = 0,
+    # and no inter-arrival times — the feature set is undefined for single packets.
+    # CICFlowMeter similarly excludes sub-packet flows from its output.
+    if flow.get("flow_duration_s", 0.0) < 1e-3:
         return None
 
     raw    = _extract(flow, features)
