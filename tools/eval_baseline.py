@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from statistics import median, stdev
 
-SEP  = "═" * 55
+SEP  = "=" * 55
 DEFAULT_API = "http://localhost:8765"
 DOCKER_CMD  = ["docker", "--context", "default"]
 

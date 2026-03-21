@@ -27,7 +27,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-SEP        = "═" * 79
+SEP        = "=" * 79
 DEFAULT_API = "http://localhost:8765"
 
 # Order matters: start with scenarios most likely to succeed so early failures

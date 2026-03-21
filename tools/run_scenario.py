@@ -39,7 +39,7 @@ except ImportError:
 
 DEFAULT_API     = "http://localhost:8765"
 DOCKER_CMD      = ["docker", "--context", "default"]
-SEP             = "═" * 55
+SEP             = "=" * 55
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
