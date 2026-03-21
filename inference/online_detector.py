@@ -398,6 +398,15 @@ class MultiWindowOIF:
     # false positives at 9 IQR, which is reachable by natural traffic variation.
     OOR_SCALE = 25.0
 
+    # After a flow is rejected (composite >= TRAIN_THRESHOLD), withhold the next
+    # COOLDOWN_FLOWS flows from training regardless of their individual scores.
+    # This blocks the majority of attack flows that score just below TRAIN_THRESHOLD —
+    # in a sustained flood, rejections recur every ~10 flows, so the cooldown keeps
+    # resetting and no attack flow reaches the training buffers.
+    # After the attack ends, the cooldown expires naturally once COOLDOWN_FLOWS
+    # consecutive flows arrive without triggering a new rejection.
+    COOLDOWN_FLOWS = 50
+
     # Save to disk every N trained flows so a mid-session restart loses at
     # most this many flows' worth of learned structure.
     _SAVE_INTERVAL = 200
@@ -435,7 +444,9 @@ class MultiWindowOIF:
 
         self._n_trained  = 0
         self._n_seen     = 0   # flows processed after baseline complete
-        self._n_rejected = 0   # flows withheld from training (composite ≥ TRAIN_THRESHOLD)
+        self._n_rejected = 0   # flows withheld from training (composite >= TRAIN_THRESHOLD)
+        self._n_frozen   = 0   # flows withheld due to cooldown after a rejection
+        self._cooldown   = 0   # remaining flows to withhold after the last rejection
         self._score_buf: deque[float] = deque(maxlen=500)  # rolling composite scores
 
     # ── baselining ────────────────────────────────────────────────────────────
@@ -543,6 +554,16 @@ class MultiWindowOIF:
         except Exception:
             log.warning("[%s OIF] Failed to save model", self.protocol, exc_info=True)
 
+    def __setstate__(self, state: dict) -> None:
+        """Restore from pickle, filling in defaults for attributes added after the pkl was saved.
+
+        Any new instance variable added to __init__ must have a default here so that
+        loading a stale pkl doesn't produce AttributeError at runtime.
+        """
+        self.__dict__.update(state)
+        if "_n_frozen"  not in state: self._n_frozen  = 0
+        if "_cooldown"  not in state: self._cooldown  = 0
+
     @classmethod
     def load(cls, path: str | Path) -> "MultiWindowOIF":
         """Load a pickled detector. Raises on any error — caller handles fallback."""
@@ -556,6 +577,10 @@ class MultiWindowOIF:
         return self.feature_names == feature_names
 
     # ── inference ─────────────────────────────────────────────────────────────
+
+    @property
+    def _cooldown_active(self) -> bool:
+        return self._cooldown > 0
 
     def process(self, raw: np.ndarray) -> tuple[WindowScores, list[dict]] | None:
         """Score a flow. Returns None during baselining.
@@ -614,15 +639,23 @@ class MultiWindowOIF:
         self._n_seen += 1
         self._score_buf.append(composite)
 
-        if composite < self.TRAIN_THRESHOLD:
+        if composite >= self.TRAIN_THRESHOLD:
+            # Anomalous — reject and reset cooldown so the next COOLDOWN_FLOWS
+            # flows are also withheld. This propagates the rejection forward,
+            # blocking the majority of flood flows that score just below the
+            # threshold (they arrive between consecutive rejections).
+            self._n_rejected += 1
+            self._cooldown = self.COOLDOWN_FLOWS
+        elif self._cooldown_active:
+            self._cooldown -= 1
+            self._n_frozen += 1
+        else:
             # Only reachable via the normal path — x_dict is defined.
             for model in self._models:
                 model.learn_one(x_dict)
             self._n_trained += 1
             if self._n_trained % self._SAVE_INTERVAL == 0:
                 self.save()
-        else:
-            self._n_rejected += 1
 
         return window_scores, attribution, oor_score
 
@@ -662,7 +695,7 @@ class MultiWindowOIF:
             for name, score in ranked[:3]
         ]
 
-    # ── health metrics ─────────────────────────────────────────────────────────
+    # ── health metrics ──────��──────────────────────────────────────────────────
 
     def metrics(self) -> dict:
         """Runtime health metrics for the dashboard Model Health panel.
@@ -678,7 +711,9 @@ class MultiWindowOIF:
             "n_seen":           self._n_seen,
             "n_trained":        self._n_trained,
             "n_rejected":       self._n_rejected,
+            "n_frozen":         self._n_frozen,
             "rejection_rate":   self._n_rejected / max(self._n_seen, 1),
+            "cooldown_remaining": self._cooldown,
             "score_p50":        float(np.percentile(arr, 50)),
             "score_p95":        float(np.percentile(arr, 95)),
             "score_recent":     buf[-20:],   # last 20 scores for sparkline

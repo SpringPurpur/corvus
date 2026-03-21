@@ -156,20 +156,30 @@ def query_flows(
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     params.append(limit)
 
-    rows = _conn.execute(
-        f"""
-        SELECT flow_id, ts, src_ip, dst_ip, src_port, dst_port,
-               proto, duration, fwd_pkts,
-               label, severity, confidence,
-               score_fast, score_medium, score_slow, score_comp, score_oor,
-               attribution, shap
-        FROM flows
-        {where}
-        ORDER BY ts DESC
-        LIMIT ?
-        """,
-        params,
-    ).fetchall()
+    # Open a dedicated read connection instead of reusing _conn.
+    # The shared write connection can hold Python's sqlite3 internal lock for
+    # several seconds while batch-inserting flood flows. A separate read
+    # connection in WAL mode reads from the last committed snapshot without
+    # blocking or being blocked by the writer.
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        rows = read_conn.execute(
+            f"""
+            SELECT flow_id, ts, src_ip, dst_ip, src_port, dst_port,
+                   proto, duration, fwd_pkts,
+                   label, severity, confidence,
+                   score_fast, score_medium, score_slow, score_comp, score_oor,
+                   attribution, shap
+            FROM flows
+            {where}
+            ORDER BY ts DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    finally:
+        read_conn.close()
 
     return [_row_to_alert(r) for r in rows]
 
