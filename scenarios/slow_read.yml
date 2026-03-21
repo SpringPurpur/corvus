@@ -1,0 +1,28 @@
+name: Slow Read HTTP DoS
+description: >
+  slowhttptest advertises a tiny TCP receive window so nginx cannot flush its
+  send buffer. Server holds connections open for minutes while the attacker
+  reads the response a few bytes per tick.
+  Expected OIF signature: flow_duration_s very long (>60s), bwd_pkts_per_sec
+  near zero (server stalled waiting for window to open), fwd_act_data_pkts=1
+  (attacker sends the HTTP request then goes silent).
+  Distinct from Slowloris (attacker sends headers slowly) and Slow POST
+  (attacker dribbles the request body) — here the server is the slow party.
+  Completes the slow-HTTP trilogy: three superficially similar attacks, three
+  distinct OIF feature profiles.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/slow_read.sh
+  args: ["http://172.20.0.10/", "200", "120"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  # Flows complete when the attack ends and nginx closes stalled connections.
+  monitor_s: 180

@@ -38,8 +38,10 @@ DEFAULT_API = "http://localhost:8765"
 # don't contaminate confidence in the whole suite.
 DEFAULT_SCENARIO_ORDER = [
     "slowloris",
+    "slow_read",
     "ssh_bruteforce",
     "http_flood",
+    "http2_rapid_reset",
     "udp_flood",
     "port_scan",
     "syn_flood",

@@ -1,0 +1,27 @@
+name: HTTP/2 Rapid Reset (CVE-2023-44487)
+description: >
+  Python PoC opens TLS/HTTP2 connections to nginx:443 and sends HEADERS +
+  RST_STREAM for each stream immediately, bypassing
+  SETTINGS_MAX_CONCURRENT_STREAMS. This is the mechanism behind the 2023
+  record-breaking DDoS (398 million req/s against cloud providers).
+  Expected OIF signature: rst_flag_cnt very high (one RST per stream),
+  flow_duration_s short to moderate (TLS handshake + burst of resets),
+  psh_flag_cnt near zero (no HTTP data frames), init_fwd_win_bytes normal
+  (legitimate TLS handshake — distinguishes from SYN flood).
+  Demonstrates the OIF detecting a cryptographically opaque attack purely
+  from TCP-level flag patterns visible before TLS payload inspection.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/http2_rapid_reset.sh
+  args: ["172.20.0.10", "443", "50", "100"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 60
