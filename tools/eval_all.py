@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-eval_all.py — run every scenario with OIF resets between each, then
+eval_all.py - run every scenario with OIF resets between each, then
 print a side-by-side comparison table.
 
 Workflow per scenario:
-  1. DELETE /flows       — clean DB so each scenario starts from zero
-  2. POST /baseline/reset — fresh OIF state (deletes pkl, re-baselines)
-  3. python tools/run_scenario.py <yml>  — baselines + runs attack
+  1. DELETE /flows        - clean DB so each scenario starts from zero
+  2. POST /baseline/reset - fresh OIF state (deletes pkl, re-baselines)
+  3. python tools/run_scenario.py <yml>  - baselines + runs attack
   4. Collect the result JSON from scenarios/results/
 
 After all scenarios, print a comparison table and save a summary JSON.
@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.request
 
-# Force UTF-8 stdout so Unicode characters don't crash on Windows (cp1252).
+# Force UTF-8 stdout on Windows where the default codec is cp1252.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime
@@ -47,7 +47,7 @@ DEFAULT_SCENARIO_ORDER = [
 ]
 
 
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
+# -- HTTP helpers --
 
 def _post(url: str) -> dict:
     req = urllib.request.Request(url, method="POST", data=b"")
@@ -65,7 +65,7 @@ def _delete(url: str) -> dict:
         return json.loads(r.read())
 
 
-# ── Reset between scenarios ───────────────────────────────────────────────────
+# -- Reset between scenarios --
 
 def reset(api: str) -> None:
     """Clear DB and reset OIF detectors to fresh-baselining state."""
@@ -74,24 +74,24 @@ def reset(api: str) -> None:
         print(f"  [reset] Deleted {result.get('deleted', 0)} flows from DB.")
     except urllib.error.HTTPError as e:
         if e.code == 405:
-            print(f"  [reset] ERROR: DELETE /flows returned 405 — inference container "
+            print(f"  [reset] ERROR: DELETE /flows returned 405 - inference container "
                   f"needs a rebuild.\n         Run: python launch.py --build", file=sys.stderr)
             sys.exit(1)
         raise
 
     try:
         _post(f"{api}/baseline/reset?protocol=all")
-        print("  [reset] OIF detectors reset — will re-baseline on next flows.")
+        print("  [reset] OIF detectors reset - will re-baseline on next flows.")
     except urllib.error.HTTPError as e:
         if e.code in (404, 405):
-            print(f"  [reset] ERROR: POST /baseline/reset returned {e.code} — inference "
+            print(f"  [reset] ERROR: POST /baseline/reset returned {e.code} - inference "
                   f"container needs a rebuild.\n         Run: python launch.py --build",
                   file=sys.stderr)
             sys.exit(1)
         raise
 
 
-# ── Run a single scenario via subprocess ─────────────────────────────────────
+# -- Run a single scenario via subprocess --
 
 def run_scenario(yml_path: Path, api: str) -> Path | None:
     """Run run_scenario.py for yml_path. Returns the result JSON path, or None on failure."""
@@ -122,9 +122,9 @@ def run_scenario(yml_path: Path, api: str) -> Path | None:
     return candidates[-1]
 
 
-# ── Comparison table ──────────────────────────────────────────────────────────
+# -- Comparison table --
 
-def _fmt(val, fmt: str = ".3f", missing: str = "—") -> str:
+def _fmt(val, fmt: str = ".3f", missing: str = "N/A") -> str:
     return missing if val is None else format(val, fmt)
 
 
@@ -133,7 +133,7 @@ def print_comparison(
     scenario_results: list[dict],
 ) -> None:
     print(f"\n{SEP}")
-    print("  Corvus IDS — Full Scenario Evaluation Summary")
+    print("  Corvus IDS - Full Scenario Evaluation Summary")
     if baseline_result:
         bm = baseline_result.get("metrics", {})
         print(f"  Baseline FPR (benign-only, no attacks): "
@@ -142,17 +142,17 @@ def print_comparison(
     print(SEP)
 
     # Columns:
-    #   Detected? — YES/NO/PARTIAL/NO FLOWS
-    #   TTD (s)   — seconds from attack start to first CRITICAL alert
-    #   Peak      — highest composite score seen during attack
-    #   Det%      — rejection_approx: % of attack flows scoring ≥ HIGH
-    #   FPR CRIT  — fpr: benign flows scoring ≥ CRITICAL / all benign flows
-    #   Recovery  — flows after attack until score drops below HIGH
+    #   Detected? - YES/NO/PARTIAL/NO FLOWS
+    #   TTD (s)   - seconds from attack start to first CRITICAL alert
+    #   Peak      - highest composite score seen during attack
+    #   Det%      - rejection_approx: % of attack flows scoring >= HIGH
+    #   FPR CRIT  - fpr: benign flows scoring >= CRITICAL / all benign flows
+    #   Recovery  - flows after attack until score drops below HIGH
     col = "{:<22}  {:>9}  {:>7}  {:>6}  {:>6}  {:>9}  {:>10}"
     print(col.format(
         "Scenario", "Detected?", "TTD (s)", "Peak", "Det%", "FPR CRIT", "Recovery",
     ))
-    print("─" * 79)
+    print("-" * 79)
 
     for r in scenario_results:
         name = r.get("scenario", r.get("scenario_file", "?"))[:22]
@@ -160,7 +160,7 @@ def print_comparison(
         m        = r.get("metrics", {})
         ttd      = m.get("ttd_s")
         peak     = m.get("peak_score", 0.0)
-        det_rate = m.get("rejection_approx")   # fraction of attack flows ≥ HIGH
+        det_rate = m.get("rejection_approx")   # fraction of attack flows >= HIGH
         fpr_crit = m.get("fpr")                # benign CRITICAL rate
         recovery = m.get("recovery_flows")
 
@@ -175,9 +175,9 @@ def print_comparison(
         else:
             detected = "NO"
 
-        rec_str     = f"{recovery} fl" if recovery is not None else "—"
-        det_pct_str = f"{det_rate*100:.0f}%" if det_rate is not None else "—"
-        fpr_str     = f"{fpr_crit*100:.2f}%" if fpr_crit is not None else "—"
+        rec_str     = f"{recovery} fl" if recovery is not None else "N/A"
+        det_pct_str = f"{det_rate*100:.0f}%" if det_rate is not None else "N/A"
+        fpr_str     = f"{fpr_crit*100:.2f}%" if fpr_crit is not None else "N/A"
 
         print(col.format(
             name,
@@ -192,7 +192,7 @@ def print_comparison(
     print(SEP)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main --
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -209,7 +209,7 @@ def main() -> None:
 
     root = Path(__file__).parent.parent
 
-    # ── Resolve scenario list ──────────────────────────────────────────────────
+    # -- Resolve scenario list --
     if args.scenarios:
         yml_paths = [Path(p) for p in args.scenarios]
     else:
@@ -227,14 +227,14 @@ def main() -> None:
         sys.exit(1)
 
     print(f"\n{SEP}")
-    print("  Corvus IDS — Full Scenario Evaluation")
+    print("  Corvus IDS - Full Scenario Evaluation")
     print(f"  Scenarios  : {len(yml_paths)}")
     print(f"  API        : {args.api}")
     print(SEP)
 
     run_at = time.time()
 
-    # ── Optional baseline quality check ───────────────────────────────────────
+    # -- Optional baseline quality check --
     baseline_result: dict | None = None
     if not args.skip_baseline:
         print("\n[eval_all] Step 0: baseline quality check")
@@ -253,7 +253,7 @@ def main() -> None:
         if candidates:
             baseline_result = json.loads(candidates[-1].read_text())
 
-    # ── Run each scenario ──────────────────────────────────────────────────────
+    # -- Run each scenario --
     scenario_results: list[dict] = []
 
     for i, yml_path in enumerate(yml_paths, start=1):
@@ -261,7 +261,7 @@ def main() -> None:
         print(f"  Scenario {i}/{len(yml_paths)}: {yml_path.name}")
         print(SEP)
 
-        print("\n[eval_all] Resetting OIF state…")
+        print("\n[eval_all] Resetting OIF state...")
         reset(args.api)
 
         result_path = run_scenario(yml_path, args.api)
@@ -279,7 +279,7 @@ def main() -> None:
             })
             print(f"[eval_all] WARNING: no result collected for {yml_path.name}")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    # -- Summary --
     print_comparison(baseline_result, scenario_results)
 
     # Save summary

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-eval_baseline.py — measure false positive rate on clean benign traffic.
+eval_baseline.py - measure false positive rate on clean benign traffic.
 
 Resets the OIF detectors, waits for rebaselining to complete, observes
 benign-only traffic for --duration minutes, then reports:
   - Score distribution (p25/p50/p75/p95/p99/max)
-  - FPR at HIGH (≥0.60) and CRITICAL (≥0.75) thresholds
+  - FPR at HIGH (>=0.60) and CRITICAL (>=0.75) thresholds
   - Feature attribution breakdown for false-positive flows
     (which features are most often driving the wrong scores)
 
@@ -20,8 +20,7 @@ import json
 import subprocess
 import sys
 
-# Force UTF-8 stdout so Unicode characters (em-dashes, block bars, etc.) don't
-# crash with UnicodeEncodeError on Windows where the default codec is cp1252.
+# Force UTF-8 stdout on Windows where the default codec is cp1252.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import time
@@ -37,7 +36,7 @@ DEFAULT_API = "http://localhost:8765"
 DOCKER_CMD  = ["docker", "--context", "default"]
 
 
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
+# -- HTTP helpers --
 
 def _get(url: str) -> dict | list:
     with urllib.request.urlopen(url, timeout=5) as r:
@@ -54,7 +53,7 @@ def _delete(url: str) -> dict:
     # data=b"" forces Content-Length: 0; without it urllib omits the header
     # and uvicorn drops the connection before sending a response.
     # 30s timeout: clear_flows() acquires _write_lock which the inference
-    # worker also holds during inserts — contention can delay the response.
+    # worker also holds during inserts - contention can delay the response.
     req = urllib.request.Request(url, data=b"", method="DELETE")
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
@@ -71,39 +70,39 @@ def _get_stats(api: str) -> dict:
     return _get(f"{api}/stats")  # type: ignore[return-value]
 
 
-# ── Reset ─────────────────────────────────────────────────────────────────────
+# -- Reset --
 
 def reset_and_clear(api: str) -> None:
-    print("[reset] Clearing flow DB…")
+    print("[reset] Clearing flow DB...")
     try:
         result = _delete(f"{api}/flows")
         print(f"[reset] Deleted {result.get('deleted', 0)} flows.")
     except urllib.error.HTTPError as e:
         if e.code == 405:
-            print("ERROR: DELETE /flows returned 405 — the inference container needs a rebuild.\n"
+            print("ERROR: DELETE /flows returned 405 - the inference container needs a rebuild.\n"
                   "       Run: python launch.py --build", file=sys.stderr)
             sys.exit(1)
         raise
 
-    print("[reset] Resetting OIF detectors (TCP + UDP)…")
+    print("[reset] Resetting OIF detectors (TCP + UDP)...")
     try:
         _post(f"{api}/baseline/reset?protocol=all")
-        print("[reset] Detectors reset — re-baselining will begin on next flows.")
+        print("[reset] Detectors reset - re-baselining will begin on next flows.")
     except urllib.error.HTTPError as e:
         if e.code in (404, 405):
-            print(f"ERROR: POST /baseline/reset returned {e.code} — the inference container "
+            print(f"ERROR: POST /baseline/reset returned {e.code} - the inference container "
                   f"needs a rebuild.\n       Run: python launch.py --build", file=sys.stderr)
             sys.exit(1)
         raise
 
 
-# ── Baseline traffic ──────────────────────────────────────────────────────────
+# -- Baseline traffic --
 
 def trigger_fast_baseline(
     client_a: str = "ids_client_a",
     client_b: str = "ids_client_b",
 ) -> None:
-    print("[baseline] Triggering fast_baseline.sh on client containers…")
+    print("[baseline] Triggering fast_baseline.sh on client containers...")
     for c in (client_a, client_b):
         try:
             subprocess.Popen(
@@ -111,7 +110,7 @@ def trigger_fast_baseline(
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            print(f"[baseline] WARNING: docker not found — skipping {c}")
+            print(f"[baseline] WARNING: docker not found - skipping {c}")
 
 
 def wait_for_ready(api: str, timeout_s: int = 360) -> dict:
@@ -119,7 +118,7 @@ def wait_for_ready(api: str, timeout_s: int = 360) -> dict:
     deadline = time.time() + timeout_s
     last_prog = -1.0
 
-    print(f"[baseline] Waiting for TCP detector (timeout {timeout_s}s)…")
+    print(f"[baseline] Waiting for TCP detector (timeout {timeout_s}s)...")
     while time.time() < deadline:
         try:
             stats = _get_stats(api)
@@ -150,11 +149,11 @@ def wait_for_ready(api: str, timeout_s: int = 360) -> dict:
 
         time.sleep(5)
 
-    print(f"[baseline] WARNING: timed out after {timeout_s}s — proceeding anyway.")
+    print(f"[baseline] WARNING: timed out after {timeout_s}s - proceeding anyway.")
     return _get_stats(api)
 
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# -- Metrics --
 
 def _score(flow: dict) -> float:
     return flow.get("score_comp") or (flow.get("scores") or {}).get("composite") or 0.0
@@ -228,12 +227,12 @@ def compute_baseline_metrics(
     }
 
 
-# ── Report printing ───────────────────────────────────────────────────────────
+# -- Report printing --
 
 def print_report(m: dict, duration_min: float, run_at: float, out_path: str) -> None:
     ts = datetime.fromtimestamp(run_at).strftime("%Y-%m-%d %H:%M:%S")
     print(f"\n{SEP}")
-    print("  Corvus IDS — Baseline Quality Evaluation")
+    print("  Corvus IDS - Baseline Quality Evaluation")
     print(f"  Duration : {duration_min:.1f} min observation after baselining")
     print(f"  Run at   : {ts}")
     print(SEP)
@@ -254,27 +253,27 @@ def print_report(m: dict, duration_min: float, run_at: float, out_path: str) -> 
     hist = m["hist"]
     print("\nScore histogram")
     total = m["n_total"]
-    print(f"  INFO       (<0.45)  : {hist['info']:5d}  ({hist['info']/total*100:5.1f}%)")
-    print(f"  Borderline (0.45–0.60): {hist['borderline']:5d}  "
+    print(f"  INFO       (<0.45)   : {hist['info']:5d}  ({hist['info']/total*100:5.1f}%)")
+    print(f"  Borderline (0.45-0.60): {hist['borderline']:5d}  "
           f"({hist['borderline']/total*100:5.1f}%)")
-    print(f"  HIGH       (0.60–0.75): {hist['high']:5d}  "
+    print(f"  HIGH       (0.60-0.75): {hist['high']:5d}  "
           f"({hist['high']/total*100:5.1f}%)")
-    print(f"  CRITICAL   (≥0.75)  : {hist['critical']:5d}  "
+    print(f"  CRITICAL   (>=0.75)  : {hist['critical']:5d}  "
           f"({hist['critical']/total*100:5.1f}%)")
 
     fpr_h_pct  = m["fpr_high"] * 100
     fpr_c_pct  = m["fpr_crit"] * 100
-    h_flag  = "  ← HIGH" if fpr_h_pct > 5 else ""
-    c_flag  = "  ← HIGH" if fpr_c_pct > 2 else ""
+    h_flag  = "  <- HIGH" if fpr_h_pct > 5 else ""
+    c_flag  = "  <- HIGH" if fpr_c_pct > 2 else ""
     print("\nFalse positive rate (all flows are benign)")
-    print(f"  FPR HIGH     (≥0.60) : {m['n_high']:5d} / {total}  = {fpr_h_pct:.2f}%{h_flag}")
-    print(f"  FPR CRITICAL (≥0.75) : {m['n_critical']:5d} / {total}  = {fpr_c_pct:.2f}%{c_flag}")
+    print(f"  FPR HIGH     (>=0.60) : {m['n_high']:5d} / {total}  = {fpr_h_pct:.2f}%{h_flag}")
+    print(f"  FPR CRITICAL (>=0.75) : {m['n_critical']:5d} / {total}  = {fpr_c_pct:.2f}%{c_flag}")
 
     if m["fp_features"]:
-        print("\nTop features driving false-positive alerts (≥HIGH flows, leading attribution)")
+        print("\nTop features driving false-positive alerts (>=HIGH flows, leading attribution)")
         total_fp = sum(m["fp_features"].values())
         for feat, cnt in m["fp_features"].items():
-            bar = "█" * int(cnt / max(m["fp_features"].values()) * 20)
+            bar = "#" * int(cnt / max(m["fp_features"].values()) * 20)
             print(f"  {feat:<22} : {cnt:4d} / {total_fp}  ({cnt/total_fp*100:5.1f}%)  {bar}")
 
     print(f"\n{SEP}")
@@ -282,7 +281,7 @@ def print_report(m: dict, duration_min: float, run_at: float, out_path: str) -> 
     print(SEP)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main --
 
 def main() -> dict:
     parser = argparse.ArgumentParser(
@@ -294,7 +293,7 @@ def main() -> dict:
     parser.add_argument("--timeout",   type=int,   default=360,
                         help="Seconds to wait for baselining to complete (default: 360)")
     parser.add_argument("--no-reset",  action="store_true",
-                        help="Skip OIF reset — evaluate model in its current state")
+                        help="Skip OIF reset - evaluate model in its current state")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
     parser.add_argument("--threshold-critical", type=float, default=0.75)
     parser.add_argument("--client-a",  default="ids_client_a")
@@ -313,16 +312,16 @@ def main() -> dict:
     obs_start = time.time()
     obs_end   = obs_start + args.duration * 60
 
-    print(f"[eval] Observing benign traffic for {args.duration:.1f} min…")
+    print(f"[eval] Observing benign traffic for {args.duration:.1f} min...")
     remaining = obs_end - time.time()
     while remaining > 0:
         mins, secs = divmod(int(remaining), 60)
-        print(f"  {mins:02d}:{secs:02d} remaining…", end="\r", flush=True)
+        print(f"  {mins:02d}:{secs:02d} remaining...", end="\r", flush=True)
         time.sleep(min(10, remaining))
         remaining = obs_end - time.time()
     print()
 
-    print("[eval] Querying flows…")
+    print("[eval] Querying flows...")
     flows = _get_flows(args.api, ts_from=obs_start)
     print(f"[eval] {len(flows)} flows retrieved.")
 

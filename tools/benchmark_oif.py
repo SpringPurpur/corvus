@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-benchmark_oif.py — replay stored flows through MultiWindowOIF instances with
+benchmark_oif.py - replay stored flows through MultiWindowOIF instances with
 different window configurations and compare detection performance.
 
 Reads flows from the SQLite database produced by the inference engine and
@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "inference"))
 
 from online_detector import MultiWindowOIF  # noqa: E402 (after sys.path fix)
 
-# ── Feature name lists (must match online_detector.py) ────────────────────────
+# -- Feature name lists (must match online_detector.py) --
 
 TCP_FEATURE_NAMES = [
     "init_fwd_win_bytes", "rst_flag_cnt", "bwd_pkt_len_std",
@@ -48,7 +48,7 @@ UDP_FEATURE_NAMES = [
 BENIGN_LABELS = {"Benign", "Unknown", "INFO"}
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
+# -- Data loading --
 
 def load_flows(db_path: str, protocol: str) -> list[dict]:
     """Load all flows for the given protocol from SQLite, ordered by timestamp."""
@@ -93,7 +93,7 @@ def flow_to_features(flow: dict, feature_names: list[str]) -> list[float]:
     return [float(flow.get(mapping.get(n, n), 0.0)) for n in feature_names]
 
 
-# ── Benchmark run ─────────────────────────────────────────────────────────────
+# -- Benchmark run --
 
 class BenchResult(NamedTuple):
     config:         str
@@ -114,7 +114,7 @@ def run_benchmark(
 ) -> BenchResult:
     import numpy as np
 
-    config_label = f"{windows[0]}/{windows[1]}/{windows[2]} ×{weights[0]:.2f}"
+    config_label = f"{windows[0]}/{windows[1]}/{windows[2]} x{weights[0]:.2f}"
 
     # Patch weights into a temporary subclass so we don't mutate the global
     class _OIF(MultiWindowOIF):
@@ -151,13 +151,13 @@ def run_benchmark(
         scores, _ = result
         composite  = scores.composite
 
-        # TTD — first CRITICAL during attack segment
+        # TTD - first CRITICAL during attack segment
         if in_attack and first_attack is not None and i >= first_attack and not detected:
             if composite >= threshold_critical:
                 ttd_flows = i - first_attack
                 detected  = True
 
-        # FPR — CRITICAL alerts during benign flows
+        # FPR - CRITICAL alerts during benign flows
         if not is_attack[i]:
             n_benign += 1
             if composite >= threshold_critical:
@@ -170,7 +170,7 @@ def run_benchmark(
                 if composite >= threshold_high:
                     n_rejected_atk += 1
 
-        # Recovery — first flow after attack where composite drops below HIGH
+        # Recovery - first flow after attack where composite drops below HIGH
         if last_attack is not None and i > last_attack and not recovered:
             if composite < threshold_high:
                 recovery_flows = i - last_attack
@@ -188,7 +188,7 @@ def run_benchmark(
     )
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# -- CLI --
 
 def parse_windows(s: str) -> tuple[int, int, int]:
     parts = [int(x.strip()) for x in s.split(",")]
@@ -237,19 +237,19 @@ def main() -> None:
 
     feature_names = TCP_FEATURE_NAMES if args.protocol == "TCP" else UDP_FEATURE_NAMES
 
-    print(f"Loading {args.protocol} flows from {db_path}…")
+    print(f"Loading {args.protocol} flows from {db_path}...")
     flows = load_flows(db_path, args.protocol)
     if not flows:
         print(f"No {args.protocol} flows found in database.", file=sys.stderr)
         sys.exit(1)
 
     attack_count  = sum(1 for f in flows if f.get("verdict_label", "Unknown") not in BENIGN_LABELS)
-    print(f"  {len(flows)} flows total — {attack_count} attack, "
+    print(f"  {len(flows)} flows total - {attack_count} attack, "
           f"{len(flows) - attack_count} benign\n")
 
     results: list[BenchResult] = []
     for windows in args.windows:
-        print(f"  Running config {windows[0]}/{windows[1]}/{windows[2]}…", end=" ", flush=True)
+        print(f"  Running config {windows[0]}/{windows[1]}/{windows[2]}...", end=" ", flush=True)
         r = run_benchmark(
             flows, feature_names, args.protocol,
             windows, args.weights,
@@ -258,7 +258,7 @@ def main() -> None:
         results.append(r)
         print("done")
 
-    # ── Results table ──────────────────────────────────────────────────────────
+    # -- Results table --
     print()
     col_w = max(len(r.config) for r in results) + 2
     header = f"{'Config':<{col_w}}  {'TTD (flows)':>12}  {'FPR':>7}  {'Recovery':>10}  {'Rejection':>10}"
@@ -273,10 +273,10 @@ def main() -> None:
         )
 
     print()
-    print("TTD        — flows from first attack until first CRITICAL alert")
-    print("FPR        — CRITICAL alerts on benign flows / total benign flows")
-    print("Recovery   — flows after last attack until scores drop below HIGH threshold")
-    print("Rejection  — % of attack-segment flows withheld from training (poisoning defence)")
+    print("TTD        - flows from first attack until first CRITICAL alert")
+    print("FPR        - CRITICAL alerts on benign flows / total benign flows")
+    print("Recovery   - flows after last attack until scores drop below HIGH threshold")
+    print("Rejection  - % of attack-segment flows withheld from training (poisoning defence)")
 
 
 if __name__ == "__main__":

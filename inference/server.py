@@ -6,11 +6,13 @@
 
 import asyncio
 import logging
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
@@ -123,6 +125,17 @@ async def get_baseline_stats() -> dict:
     }
 
 
+@app.get("/time")
+async def get_server_time() -> dict:
+    """Return the server's current Unix timestamp.
+
+    Used by the scenario runner to compute the host-to-container clock offset.
+    Flow timestamps (ts) come from the C engine's CLOCK_REALTIME; this endpoint
+    lets the runner align its own time.time() values with those timestamps.
+    """
+    return {"ts": time.time()}
+
+
 @app.get("/flows")
 async def get_flows(
     limit: int = Query(default=200, ge=1, le=50000),
@@ -132,7 +145,11 @@ async def get_flows(
     ts_from: Optional[float] = Query(default=None),
     ts_to: Optional[float] = Query(default=None),
 ) -> list:
-    return storage.query_flows(
+    # Run the SQLite query in a thread pool to avoid blocking the asyncio event
+    # loop. Under flood load (thousands of flows) the query can take several
+    # seconds; blocking here starves uvicorn and causes clients to time out.
+    return await run_in_threadpool(
+        storage.query_flows,
         limit=limit, proto=proto, label=label,
         src_ip=src_ip, ts_from=ts_from, ts_to=ts_to,
     )

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_scenario.py — orchestrate a reproducible IDS scenario and produce a
+run_scenario.py - orchestrate a reproducible IDS scenario and produce a
 quantified detection report.
 
 Usage:
@@ -26,7 +26,7 @@ import time
 import urllib.error
 import urllib.request
 
-# Force UTF-8 stdout so Unicode characters don't crash on Windows (cp1252).
+# Force UTF-8 stdout on Windows where the default codec is cp1252.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime
@@ -39,13 +39,13 @@ except ImportError:
     print("ERROR: PyYAML is required. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(1)
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
+# -- Defaults --
 
 DEFAULT_API     = "http://localhost:8765"
 DOCKER_CMD      = ["docker", "--context", "default"]
 SEP             = "=" * 55
 
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
+# -- HTTP helpers --
 
 def _get(url: str) -> dict:
     with urllib.request.urlopen(url, timeout=30) as r:
@@ -73,7 +73,29 @@ def _get_stats(api: str) -> dict:
     return _get(f"{api}/stats")
 
 
-# ── Baseline waiting ──────────────────────────────────────────────────────────
+def _get_ts_offset(api: str) -> float:
+    """Return (container_time - host_time) in seconds.
+
+    Flow timestamps come from the C engine's CLOCK_REALTIME which runs in the
+    Docker container. On Windows with WSL2, the container clock can drift from
+    the Windows host clock. This offset is added to host time.time() values
+    before comparing with flow ts fields or passing ts_from/ts_to to /flows.
+    """
+    try:
+        t_before = time.time()
+        server_ts = _get(f"{api}/time")["ts"]
+        t_after = time.time()
+        host_mid = (t_before + t_after) / 2.0
+        offset = server_ts - host_mid
+        if abs(offset) > 1.0:
+            print(f"[ts] Clock offset: container is {offset:+.1f}s vs host "
+                  f"(WSL2 drift)")
+        return offset
+    except Exception:
+        return 0.0
+
+
+# -- Baseline waiting --
 
 def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict:
     """Poll /stats until both required detectors report is_ready=true."""
@@ -111,7 +133,7 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
     return _get_stats(api)
 
 
-# ── Docker exec helpers ───────────────────────────────────────────────────────
+# -- Docker exec helpers --
 
 def docker_exec(container: str, cmd: list[str], background: bool = False) -> subprocess.Popen | None:
     full = DOCKER_CMD + ["exec", container] + cmd
@@ -127,12 +149,12 @@ def trigger_fast_baseline(client_a: str = "ids_client_a", client_b: str = "ids_c
     docker_exec(client_b, ["bash", "/scripts/fast_baseline.sh"], background=True)
 
 
-# ── Metrics computation ───────────────────────────────────────────────────────
+# -- Metrics computation --
 
 def _score(flow: dict) -> float:
     """Return the composite OIF score from a flow dict.
 
-    Tries the flat alias first (score_comp), then the nested path — handles
+    Tries the flat alias first (score_comp), then the nested path - handles
     both the current storage format and any older snapshots.
     """
     return (
@@ -143,7 +165,7 @@ def _score(flow: dict) -> float:
 
 
 def _involves_attacker(flow: dict, attacker_ip: str) -> bool:
-    # Flow keys are normalised (lower IP → src_ip), so the attacker can appear
+    # Flow keys are normalised (lower IP -> src_ip), so the attacker can appear
     # in either src_ip or dst_ip depending on which side has the lower address.
     return flow.get("src_ip") == attacker_ip or flow.get("dst_ip") == attacker_ip
 
@@ -164,7 +186,7 @@ def compute_metrics(
                              and t_attack_start <= f["ts"] <= t_attack_end)]
     post_flows    = [f for f in all_flows if f["ts"] > t_attack_end]
 
-    # TTD — first CRITICAL alert from attacker during attack window
+    # TTD - first CRITICAL alert from attacker during attack window
     ttd_s         = None
     ttd_flows_idx = None
     for i, f in enumerate(sorted(attack_flows, key=lambda x: x["ts"])):
@@ -183,18 +205,18 @@ def compute_metrics(
         sum(1 for s in attack_scores if s >= threshold_high) / max(len(attack_scores), 1)
     )
 
-    # FPR — CRITICAL alerts from non-attacker IPs during the full window
+    # FPR - CRITICAL alerts from non-attacker IPs during the full window
     n_fp      = sum(1 for f in benign_flows if _score(f) >= threshold_critical)
     fpr       = n_fp / max(len(benign_flows), 1)
 
-    # Recovery — flows after attack until last CRITICAL drops below HIGH
+    # Recovery - flows after attack until last CRITICAL drops below HIGH
     recovery_flows = None
     for i, f in enumerate(sorted(post_flows, key=lambda x: x["ts"])):
         if _score(f) < threshold_high:
             recovery_flows = i + 1
             break
 
-    # Baseline quality — benign flows before the attack
+    # Baseline quality - benign flows before the attack
     pre_flows     = [f for f in benign_flows if f["ts"] < t_attack_start]
     pre_scores    = [_score(f) for f in pre_flows]
     pre_median    = median(pre_scores) if pre_scores else 0.0
@@ -215,7 +237,7 @@ def compute_metrics(
     }
 
 
-# ── Report printing ───────────────────────────────────────────────────────────
+# -- Report printing --
 
 def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: dict,
                  t_attack_start: float, t_attack_end: float) -> None:
@@ -270,7 +292,7 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
     print(SEP)
 
 
-# ── Single-phase attack runner ────────────────────────────────────────────────
+# -- Single-phase attack runner --
 
 def run_phase(container: str, script: str, args: list, phase_name: str = "Attack") -> tuple[float, float]:
     print(f"\n[{phase_name.lower()}] Starting: {script} {' '.join(str(a) for a in args)}")
@@ -281,7 +303,7 @@ def run_phase(container: str, script: str, args: list, phase_name: str = "Attack
     return t_start, t_end
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main --
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a Corvus IDS scenario and report detection metrics")
@@ -292,7 +314,7 @@ def main() -> None:
     parser.add_argument("--threshold-critical", type=float, default=0.75)
     args = parser.parse_args()
 
-    # ── Load scenario ──────────────────────────────────────────────────────────
+    # -- Load scenario --
     scenario_path = Path(args.scenario)
     if not scenario_path.exists():
         print(f"ERROR: scenario file not found: {scenario_path}", file=sys.stderr)
@@ -312,7 +334,12 @@ def main() -> None:
     print(f"  Corvus IDS - {scenario['name']}")
     print(SEP)
 
-    # ── Baseline ───────────────────────────────────────────────────────────────
+    # Measure host-to-container clock offset once before the attack.
+    # Flow ts values come from the C engine's CLOCK_REALTIME in the Docker
+    # container; on Windows/WSL2 this can diverge from host time.time().
+    ts_offset = _get_ts_offset(args.api)
+
+    # -- Baseline --
     if not args.no_baseline and baseline_cfg.get("auto_baseline", False):
         trigger_fast_baseline()
 
@@ -326,7 +353,7 @@ def main() -> None:
         except Exception:
             stats_before = {"tcp": {}, "udp": {}}
 
-    # ── Run attack(s) ──────────────────────────────────────────────────────────
+    # -- Run attack(s) --
     phases = scenario.get("phases") or [scenario.get("attack", {})]
     all_phases: list[dict] = []
 
@@ -349,12 +376,12 @@ def main() -> None:
     t_attack_start = all_phases[0]["t_start"]
     t_attack_end   = all_phases[-1]["t_end"]
 
-    # ── Recovery monitoring ────────────────────────────────────────────────────
+    # -- Recovery monitoring --
     if monitor_s > 0:
         print(f"\n[recovery] Monitoring for {monitor_s}s...")
         time.sleep(monitor_s)
 
-    # ── Wait for ring buffer to drain before querying ──────────────────────────
+    # -- Wait for ring buffer to drain before querying --
     # The SYN flood (and any pre-existing ring buffer backlog) causes flows to
     # arrive in Python long after their capture timestamp. Flows are only written
     # to SQLite once processed, so querying immediately after monitoring misses
@@ -362,12 +389,13 @@ def main() -> None:
     #
     # Strategy: measure background flow rate (flows/s before the attack), then
     # after monitoring, poll until the processing rate drops back to within 20%
-    # of that baseline for 3 consecutive intervals — meaning the burst has drained.
+    # of that baseline for 3 consecutive intervals - meaning the burst has drained.
     background_rate = (stats_before["tcp"].get("n_seen", 0) +
                        stats_before["udp"].get("n_seen", 0))
 
     # Sample rate over a short pre-query window to get flows/s
     time.sleep(5)
+    sample_total = background_rate  # fallback: assume no new flows during drain wait
     try:
         s_sample = _get_stats(args.api)
         sample_total = s_sample["tcp"].get("n_seen", 0) + s_sample["udp"].get("n_seen", 0)
@@ -383,7 +411,7 @@ def main() -> None:
     prev_seen = sample_total
     stable_count = 0
     poll_interval = 5
-    for _ in range(72):   # max 72 × 5s = 6 minutes
+    for _ in range(72):   # max 72 x 5s = 6 minutes
         time.sleep(poll_interval)
         try:
             s = _get_stats(args.api)
@@ -405,27 +433,42 @@ def main() -> None:
 
     stats_after = _get_stats(args.api)
 
-    # ── Query flows ────────────────────────────────────────────────────────────
-    window_start = t_attack_start - 120   # include 2min of benign pre-attack context
-    window_end   = t_attack_end + monitor_s
+    # -- Query flows --
+    # Apply ts_offset so the window aligns with flow timestamps from the C engine.
+    # ts_offset = container_time - host_time (positive if container is ahead).
+    c_attack_start = t_attack_start + ts_offset
+    c_attack_end   = t_attack_end   + ts_offset
+    window_start   = c_attack_start - 120   # 2min pre-attack benign context
+    window_end     = c_attack_end   + monitor_s
 
-    print("[report] Querying flow database...")
+    print(f"[report] Querying flows ts=[{window_start:.0f}, {window_end:.0f}] "
+          f"(offset={ts_offset:+.1f}s)...")
     try:
-        # Use ts_from/ts_to so the query is bounded to the window — avoids the
-        # limit cutting off early flows when high background traffic fills the DB.
+        # First get total DB count to distinguish "window mismatch" from "empty DB"
+        db_all = _get_flows(args.api, limit=50000)
+        db_ts_vals = [f["ts"] for f in db_all] if db_all else []
+        if db_ts_vals:
+            print(f"[report] DB total: {len(db_all)} flows, "
+                  f"ts range [{min(db_ts_vals):.0f}, {max(db_ts_vals):.0f}]")
+        else:
+            print("[report] DB total: 0 flows")
+
         raw = _get_flows(args.api, ts_from=window_start, ts_to=window_end)
-        window_flows = raw   # server already filtered by time
+        window_flows = raw
     except Exception as e:
         print(f"[report] WARNING: could not query flows: {e}")
         window_flows = []
 
-    # ── Compute metrics ────────────────────────────────────────────────────────
+    print(f"[report] {len(window_flows)} flows in window.")
+
+    # -- Compute metrics --
+    # Pass container-aligned attack times so ts comparisons inside are correct.
     metrics = compute_metrics(
-        window_flows, attacker_ip, t_attack_start, t_attack_end,
+        window_flows, attacker_ip, c_attack_start, c_attack_end,
         args.threshold_high, args.threshold_critical,
     )
 
-    # ── Save results ───────────────────────────────────────────────────────────
+    # -- Save results --
     results_dir = Path(__file__).parent.parent / "scenarios" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     ts_str   = datetime.fromtimestamp(t_attack_start).strftime("%Y%m%d_%H%M%S")
@@ -448,7 +491,7 @@ def main() -> None:
 
     out_path.write_text(json.dumps(result, indent=2))
 
-    # ── Print report ───────────────────────────────────────────────────────────
+    # -- Print report --
     print_report(scenario, result, stats_before, stats_after, t_attack_start, t_attack_end)
 
 
