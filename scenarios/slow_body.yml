@@ -1,0 +1,26 @@
+name: Slow POST Body DoS (R-U-Dead-Yet)
+description: >
+  slowhttptest dribbles POST request bodies byte-by-byte, keeping nginx
+  workers tied up waiting for complete request bodies.
+  Expected OIF signature: flow_duration_s long (>60s), fwd_act_data_pkts > 0
+  (POST chunks are data packets — unlike Slowloris where fwd_act_data_pkts=0),
+  pkt_len_mean very small (2-10 bytes per chunk), bwd_pkts_per_sec near zero
+  (server cannot respond until the full body arrives).
+  Maps to CIC-IDS 2018 class DoS-SlowHTTPTest (class 7).
+  With Slowloris (slow headers) and Slow Read (tiny receive window), this
+  completes the slow-HTTP trilogy: three attacks, three distinct OIF profiles.
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/slow_body.sh
+  args: ["http://172.20.0.10/", "200", "120"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 180

@@ -1,0 +1,27 @@
+name: GoldenEye HTTP Keepalive Flood
+description: >
+  Apache Benchmark with keepalive (-k) sends a high volume of HTTP requests
+  over persistent connections, exhausting nginx's worker pool.
+  Expected OIF signature: fwd_act_data_pkts very high (many HTTP request/
+  response cycles per TCP flow), flow_duration_s long (persistent connection),
+  bwd_pkts_per_sec sustained (server responds to every request).
+  Distinct from regular HTTP flood (ab without -k): far fewer TCP flows but
+  each carries hundreds of cycles — same resource exhaustion, different OIF
+  feature profile. Demonstrates the detector is sensitive to connection
+  behaviour, not just packet rate.
+  Maps to CIC-IDS 2018 class DoS-GoldenEye (class 4).
+
+attacker_container: ids_attacker
+attacker_ip: "172.20.0.20"
+
+attack:
+  script: /attacks/goldeneye.sh
+  args: ["http://172.20.0.10/", "50000", "100"]
+
+baseline:
+  auto_baseline: true
+  wait_for_ready: true
+  timeout_s: 360
+
+recovery:
+  monitor_s: 60
