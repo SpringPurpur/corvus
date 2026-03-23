@@ -226,7 +226,7 @@ def main() -> None:
                         help='Model weights as "w1,w2,w3" (must sum to 1, '
                              'default: "0.20,0.30,0.50")')
     parser.add_argument("--threshold-high",     type=float, default=0.60)
-    parser.add_argument("--threshold-critical", type=float, default=0.75)
+    parser.add_argument("--threshold-critical", type=float, default=0.80)
     args = parser.parse_args()
 
     db_path = args.db

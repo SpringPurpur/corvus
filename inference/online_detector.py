@@ -396,7 +396,7 @@ class MultiWindowOIF:
     # The OOR term catches this regime: oor_score = 1 - exp(-deviation/OOR_SCALE),
     # where deviation = max |x_scaled[i]| (L∞ norm in RobustScaler space, unit = IQR).
     # At OOR_SCALE=25: deviation ≥ 22.9 IQR → oor_score ≥ 0.60 (HIGH);
-    #                  deviation ≥ 34.6 IQR → oor_score ≥ 0.75 (CRITICAL).
+    #                  deviation ≥ 34.6 IQR → oor_score ≥ 0.80 (CRITICAL).
     # Volumetric floods deviate thousands of IQR on rate features — still CRITICAL.
     # Scale=10 was too aggressive: tight-IQR features (uniform baseline) triggered
     # false positives at 9 IQR, which is reachable by natural traffic variation.

@@ -85,7 +85,7 @@ CAPTURE_FILTER=
 | Setting | Default | Description |
 |---|---|---|
 | HIGH threshold | 0.60 | OIF composite score above which an alert is flagged HIGH |
-| CRITICAL threshold | 0.75 | OIF composite score above which an alert is flagged CRITICAL |
+| CRITICAL threshold | 0.80 | OIF composite score above which an alert is flagged CRITICAL |
 | TCP baseline flows | 4096 | Flows required before TCP anomaly detection activates |
 | UDP baseline flows | 1024 | Flows required before UDP anomaly detection activates |
 

@@ -14,7 +14,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 const llmResponses: Record<string, string> = {}
 
 const DEFAULT_CONFIG: AppConfig = {
-  threshold_high: 0.60, threshold_critical: 0.75,
+  threshold_high: 0.60, threshold_critical: 0.80,
   baseline_tcp: 4096, baseline_udp: 1024,
 }
 

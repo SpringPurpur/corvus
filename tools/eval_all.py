@@ -178,7 +178,7 @@ def print_comparison(
             detected = "NO FLOWS"
         elif ttd is not None:
             detected = "YES"
-        elif peak is not None and peak >= 0.75:
+        elif peak is not None and peak >= 0.80:
             detected = "YES"
         elif peak is not None and peak >= 0.60:
             detected = "PARTIAL"

@@ -313,7 +313,7 @@ def main() -> None:
     parser.add_argument("--api",       default=DEFAULT_API, help=f"Inference engine base URL (default: {DEFAULT_API})")
     parser.add_argument("--no-baseline", action="store_true", help="Skip baselining step (model already warm)")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
-    parser.add_argument("--threshold-critical", type=float, default=0.75)
+    parser.add_argument("--threshold-critical", type=float, default=0.80)
     args = parser.parse_args()
 
     # -- Load scenario --
