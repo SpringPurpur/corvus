@@ -1,27 +1,88 @@
 services:
 
-  # ── Attack simulation targets ──────────────────────────────────────────────
-  victim_web:
+  # ── Victim nodes (nginx + SSH + inter-node traffic generator) ──────────────
+  # Each node runs all services and generates traffic to its peers, modelling
+  # a realistic internal network segment where every machine is both a server
+  # and a client. Attacks target all 5 nodes simultaneously.
+  node_1:
     build:
-      context: ./victim_web
-      dockerfile: Dockerfile
-    container_name: ids_victim_web
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_1
+    environment:
+      - NODE_IP=172.20.0.10
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=1
     networks:
       ids_net:
         ipv4_address: 172.20.0.10
+    depends_on:
+      - dns
+      - ntp
 
-  victim_ssh:
-    image: linuxserver/openssh-server
-    container_name: ids_victim_ssh
+  node_2:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_2
     environment:
-      - PUID=1000
-      - PGID=1000
-      - PASSWORD_ACCESS=true
-      - USER_PASSWORD=testpass
-      - USER_NAME=testuser
+      - NODE_IP=172.20.0.11
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=2
     networks:
       ids_net:
         ipv4_address: 172.20.0.11
+    depends_on:
+      - dns
+      - ntp
+
+  node_3:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_3
+    environment:
+      - NODE_IP=172.20.0.12
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=3
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.12
+    depends_on:
+      - dns
+      - ntp
+
+  node_4:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_4
+    environment:
+      - NODE_IP=172.20.0.13
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=4
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.13
+    depends_on:
+      - dns
+      - ntp
+
+  node_5:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_5
+    environment:
+      - NODE_IP=172.20.0.14
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=5
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.14
+    depends_on:
+      - dns
+      - ntp
 
   # ── UDP infrastructure (DNS + NTP) ────────────────────────────────────────
   dns:
@@ -58,39 +119,6 @@ services:
     networks:
       ids_net:
         ipv4_address: 172.20.0.20
-
-  # ── Normal traffic clients (IF baseline + ongoing benign traffic) ──────────
-  client_a:
-    build:
-      context: ./clients
-      dockerfile: Dockerfile
-    container_name: ids_client_a
-    environment:
-      - CLIENT_ID=a
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.40
-    depends_on:
-      - victim_web
-      - victim_ssh
-      - dns
-      - ntp
-
-  client_b:
-    build:
-      context: ./clients
-      dockerfile: Dockerfile
-    container_name: ids_client_b
-    environment:
-      - CLIENT_ID=b
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.41
-    depends_on:
-      - victim_web
-      - victim_ssh
-      - dns
-      - ntp
 
   # ── Monitor (C capture engine) ─────────────────────────────────────────────
   monitor:

@@ -143,10 +143,12 @@ def docker_exec(container: str, cmd: list[str], background: bool = False) -> sub
     return None
 
 
-def trigger_fast_baseline(client_a: str = "ids_client_a", client_b: str = "ids_client_b") -> None:
-    print("[baseline] Triggering fast_baseline.sh on both clients...")
-    docker_exec(client_a, ["bash", "/scripts/fast_baseline.sh"], background=True)
-    docker_exec(client_b, ["bash", "/scripts/fast_baseline.sh"], background=True)
+_BASELINE_NODES = ["ids_node_1", "ids_node_2", "ids_node_3", "ids_node_4", "ids_node_5"]
+
+def trigger_fast_baseline() -> None:
+    print("[baseline] Triggering fast_baseline.sh on client containers...")
+    for node in _BASELINE_NODES:
+        docker_exec(node, ["bash", "/scripts/fast_baseline.sh"], background=True)
 
 
 # -- Metrics computation --
