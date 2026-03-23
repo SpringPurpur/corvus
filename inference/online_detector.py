@@ -382,9 +382,13 @@ class MultiWindowOIF:
 
     # Flows scoring at or above this threshold are withheld from training —
     # prevents attack traffic from shifting the model's definition of normal.
-    # Set above threshold_high (0.60) so that borderline HIGH flows are still
-    # trained on, preventing model drift when false positives occur.
-    TRAIN_THRESHOLD = 0.72
+    #
+    # Set at 0.80 — above the CRITICAL display threshold (0.80) so any flow
+    # that would be shown as CRITICAL is never trained on. Previously 0.72:
+    # at FPR_HIGH ~63%, TRAIN_THRESHOLD=0.72 caused >90% of benign flows to
+    # cascade through the cooldown mechanism, starving the model of training
+    # data and cementing the poor IQR estimates that drove the high FPR.
+    TRAIN_THRESHOLD = 0.80
 
     # Scale factor for the out-of-range (OOR) augmentation score.
     # OIF trees assign paths of maximum depth to points outside their training
@@ -401,11 +405,16 @@ class MultiWindowOIF:
     # After a flow is rejected (composite >= TRAIN_THRESHOLD), withhold the next
     # COOLDOWN_FLOWS flows from training regardless of their individual scores.
     # This blocks the majority of attack flows that score just below TRAIN_THRESHOLD —
-    # in a sustained flood, rejections recur every ~10 flows, so the cooldown keeps
+    # in a sustained flood, rejections recur every few flows, so the cooldown keeps
     # resetting and no attack flow reaches the training buffers.
     # After the attack ends, the cooldown expires naturally once COOLDOWN_FLOWS
     # consecutive flows arrive without triggering a new rejection.
-    COOLDOWN_FLOWS = 50
+    #
+    # Reduced from 50 to 25: during a real attack, rejections recur every ~5-10
+    # flows, so COOLDOWN=25 still blocks essentially all attack flows. The
+    # reduction allows benign flows to resume training faster after isolated
+    # false-positive rejections, preventing model starvation under high FPR.
+    COOLDOWN_FLOWS = 25
 
     # Save to disk every N trained flows so a mid-session restart loses at
     # most this many flows' worth of learned structure.
