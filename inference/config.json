@@ -1,0 +1,6 @@
+{
+  "threshold_high": 0.6,
+  "threshold_critical": 0.8,
+  "baseline_tcp": 4096,
+  "baseline_udp": 1024
+}

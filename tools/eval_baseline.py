@@ -5,7 +5,7 @@ eval_baseline.py - measure false positive rate on clean benign traffic.
 Resets the OIF detectors, waits for rebaselining to complete, observes
 benign-only traffic for --duration minutes, then reports:
   - Score distribution (p25/p50/p75/p95/p99/max)
-  - FPR at HIGH (>=0.60) and CRITICAL (>=0.75) thresholds
+  - FPR at HIGH (>=0.60) and CRITICAL (>=0.80) thresholds
   - Feature attribution breakdown for false-positive flows
     (which features are most often driving the wrong scores)
 
@@ -279,9 +279,9 @@ def print_report(m: dict, duration_min: float, run_at: float, out_path: str) -> 
     print(f"  INFO       (<0.45)   : {hist['info']:5d}  ({hist['info']/total*100:5.1f}%)")
     print(f"  Borderline (0.45-0.60): {hist['borderline']:5d}  "
           f"({hist['borderline']/total*100:5.1f}%)")
-    print(f"  HIGH       (0.60-0.75): {hist['high']:5d}  "
+    print(f"  HIGH       (0.60-0.80): {hist['high']:5d}  "
           f"({hist['high']/total*100:5.1f}%)")
-    print(f"  CRITICAL   (>=0.75)  : {hist['critical']:5d}  "
+    print(f"  CRITICAL   (>=0.80)  : {hist['critical']:5d}  "
           f"({hist['critical']/total*100:5.1f}%)")
 
     fpr_h_pct  = m["fpr_high"] * 100
@@ -290,7 +290,7 @@ def print_report(m: dict, duration_min: float, run_at: float, out_path: str) -> 
     c_flag  = "  <- HIGH" if fpr_c_pct > 2 else ""
     print("\nFalse positive rate (all flows are benign)")
     print(f"  FPR HIGH     (>=0.60) : {m['n_high']:5d} / {total}  = {fpr_h_pct:.2f}%{h_flag}")
-    print(f"  FPR CRITICAL (>=0.75) : {m['n_critical']:5d} / {total}  = {fpr_c_pct:.2f}%{c_flag}")
+    print(f"  FPR CRITICAL (>=0.80) : {m['n_critical']:5d} / {total}  = {fpr_c_pct:.2f}%{c_flag}")
 
     if m["fp_features"]:
         print("\nTop features driving false-positive alerts (>=HIGH flows, leading attribution)")
@@ -318,7 +318,7 @@ def main() -> dict:
     parser.add_argument("--no-reset",  action="store_true",
                         help="Skip OIF reset - evaluate model in its current state")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
-    parser.add_argument("--threshold-critical", type=float, default=0.75)
+    parser.add_argument("--threshold-critical", type=float, default=0.80)
     args = parser.parse_args()
 
     run_at = time.time()

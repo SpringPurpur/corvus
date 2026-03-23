@@ -28,6 +28,10 @@ TCP_COUNT=${1:-1100}   # 1100 flows per node × 5 nodes, all to OTHER nodes (sel
                        # excluded) → 5500 through-bridge flows; ~5-10% filtered
                        # by tot_pkts<4 check → ~5000 reach the buffer > 4096 target
 UDP_COUNT=${2:-250}    # ~250 flows per node × 5 nodes > 1024 UDP baseline
+SSH_COUNT=${3:-20}     # 20 SSH sessions per node × 5 nodes = 100 SSH flows in the
+                       # initial training set. Without this, the first 4096 flows
+                       # are 100% HTTP, SSH flow_duration_s and init_fwd_win_bytes
+                       # fall outside the scaler bounding box and trigger OOR=1.0.
 
 # File-size mix targets (sum to 10, RANDOM % 10 used for selection):
 #   0-4 (50%) medium.bin   100 KB  — moderate duration, mid bwd_pkts_per_sec
@@ -54,7 +58,7 @@ dns_query() {
     dig +short +time=2 +retry=0 "@$DNS" "$name" A >/dev/null 2>&1 || true
 }
 
-log "Starting — TCP: $TCP_COUNT HTTP flows x5 nodes, UDP: $UDP_COUNT DNS flows"
+log "Starting — TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (per node)"
 
 # TCP: burst HTTP requests to random nodes — no sleep for maximum fill rate.
 # Each request picks a random file size to produce a diverse bwd_pkts_per_sec
@@ -89,6 +93,26 @@ log "Starting — TCP: $TCP_COUNT HTTP flows x5 nodes, UDP: $UDP_COUNT DNS flows
         sleep 0.1   # ~10 DNS queries/s — don't overwhelm dnsmasq
     done
     log "UDP done — $UDP_COUNT flows sent."
+) &
+
+# SSH: sequential sessions — ~1-2s each, runs in parallel with TCP/UDP loops.
+# 20 sessions × 5 nodes = 100 SSH flows seeded into the training set so the
+# OIF learns SSH flow_duration_s (~1-3s) and init_fwd_win_bytes before it
+# switches to detection mode. Without this, fresh-start baselines produce
+# OOR=1.0 for every SSH flow, driving FPR_CRIT up to ~6%.
+(
+    i=0
+    while (( i < SSH_COUNT )); do
+        i=$(( i + 1 ))
+        TARGET=$(echo "$TARGETS" | tr ' ' '\n' | shuf -n1)
+        sshpass -p testpass ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 \
+            testuser@"$TARGET" "echo done" 2>/dev/null || true
+        if (( i % 5 == 0 )); then log "SSH: $i / $SSH_COUNT"; fi
+    done
+    log "SSH done — $SSH_COUNT sessions sent."
 ) &
 
 wait

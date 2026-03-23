@@ -12,6 +12,9 @@ __pycache__/
 *.pyo
 .venv/
 inference/.env
+# Analyst runtime config — bind-mounted into the inference container.
+# Seeded with correct defaults; overwritten by dashboard saves at runtime.
+# NOT gitignored so the seed file ships with the repo.
 
 # Models — trained externally, not stored in git
 inference/models/*.pkl
