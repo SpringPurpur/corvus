@@ -52,12 +52,14 @@ ssh_session() {
 }
 
 dns_query() {
-    # Alternate internal names (cache hits) and external names (cache misses)
-    # to vary response sizes and produce diverse UDP flow profiles.
+    # Mix internal names (instant cache hits) and external names (forwarded to
+    # 8.8.8.8 for cache-miss diversity). +retry=0 prevents the default 3-retry
+    # loop that stalls 6 s when the upstream DNS is unreachable (isolated bridge).
     local names=("ids-node-1.ids" "ids-node-2.ids" "ids-node-3.ids"
+                 "ids-node-4.ids" "ids-node-5.ids"
                  "google.com" "github.com" "cloudflare.com")
     local name=${names[$(( RANDOM % ${#names[@]} ))]}
-    dig +short +time=2 "@$DNS" "$name" A >/dev/null 2>&1 || true
+    dig +short +time=2 +retry=0 "@$DNS" "$name" A >/dev/null 2>&1 || true
 }
 
 ntp_sync() {
