@@ -23,8 +23,10 @@ _CONFIG_PATH = Path("/app/config.json")
 class AppConfig:
     # Alert severity thresholds — OIF composite score (0–1).
     # Raise to reduce false positives; lower to catch more marginal anomalies.
+    # threshold_critical raised 0.75 → 0.80 to match TRAIN_THRESHOLD (0.80):
+    # flows the model refuses to train on are the same flows shown as CRITICAL.
     threshold_high:     float = 0.60
-    threshold_critical: float = 0.75
+    threshold_critical: float = 0.80
 
     # Flows required before detection activates per protocol.
     # TCP can tolerate the larger value because HTTP/SSH traffic is continuous.

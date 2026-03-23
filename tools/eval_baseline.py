@@ -194,7 +194,7 @@ def _percentile(data: list[float], pct: float) -> float:
 def compute_baseline_metrics(
     flows: list[dict],
     threshold_high: float = 0.60,
-    threshold_critical: float = 0.75,
+    threshold_critical: float = 0.80,
 ) -> dict:
     scores = [_score(f) for f in flows]
     if not scores:

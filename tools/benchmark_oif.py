@@ -110,7 +110,7 @@ def run_benchmark(
     windows:       tuple[int, int, int],
     weights:       tuple[float, float, float],
     threshold_high:     float = 0.60,
-    threshold_critical: float = 0.75,
+    threshold_critical: float = 0.80,
 ) -> BenchResult:
     import numpy as np
 

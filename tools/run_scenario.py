@@ -113,8 +113,8 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
         tcp_ready = stats["tcp"].get("ready", False)
         udp_ready = stats["udp"].get("ready", False)
 
-        tcp_p = stats["tcp"].get("baseline_progress", stats["tcp"].get("n_seen", 0))
-        udp_p = stats["udp"].get("baseline_progress", stats["udp"].get("n_seen", 0))
+        tcp_p = stats["tcp"].get("n_baseline", stats["tcp"].get("n_seen", 0))
+        udp_p = stats["udp"].get("n_baseline", stats["udp"].get("n_seen", 0))
 
         if tcp_p != last_tcp or udp_p != last_udp:
             last_tcp, last_udp = tcp_p, udp_p
@@ -178,7 +178,7 @@ def compute_metrics(
     t_attack_start: float,
     t_attack_end: float,
     threshold_high: float = 0.60,
-    threshold_critical: float = 0.75,
+    threshold_critical: float = 0.80,
 ) -> dict:
     attack_flows  = [f for f in all_flows
                      if _involves_attacker(f, attacker_ip)
