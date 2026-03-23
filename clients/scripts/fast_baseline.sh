@@ -34,13 +34,11 @@ log "Starting — TCP: $TCP_COUNT HTTP flows x5 nodes, UDP: $UDP_COUNT DNS flows
     i=0
     while (( i < TCP_COUNT )); do
         i=$(( i + 1 ))
-        # Pick a random target node each request for flow diversity (varied dst_ip)
+        # Pick a random target node each request for flow diversity (varied dst_ip).
+        # Always request medium.bin (100KB) — tiny index.html completes in < 1ms on
+        # the Docker bridge and is filtered by the TCP 5ms minimum duration floor.
         TARGET=$(echo "$NODES" | tr ' ' '\n' | shuf -n1)
-        if (( i % 3 == 0 )); then
-            curl -s -o /dev/null -H "Connection: close" "http://$TARGET/medium.bin" 2>/dev/null
-        else
-            curl -s -o /dev/null -H "Connection: close" "http://$TARGET/" 2>/dev/null
-        fi
+        curl -s -o /dev/null -H "Connection: close" "http://$TARGET/medium.bin" 2>/dev/null
         if (( i % 100 == 0 )); then log "TCP: $i / $TCP_COUNT"; fi
         # No sleep — back-to-back curls fill the 4096-flow baseline quickly,
         # keeping infrastructure contamination to < 0.1% of the corpus.

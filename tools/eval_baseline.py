@@ -70,6 +70,27 @@ def _get_stats(api: str) -> dict:
     return _get(f"{api}/stats")  # type: ignore[return-value]
 
 
+def _get_ts_offset(api: str) -> float:
+    """Return (container_time - host_time) in seconds.
+
+    Flow timestamps come from the C engine's CLOCK_REALTIME in the Docker
+    container. On Windows/WSL2, the container clock can lag behind the host
+    by hours (timezone mismatch). This offset must be added to any host
+    time.time() value before using it as a ts_from filter.
+    """
+    try:
+        t_before = time.time()
+        server_ts = _get(f"{api}/time")["ts"]
+        t_after = time.time()
+        host_mid = (t_before + t_after) / 2.0
+        offset = server_ts - host_mid
+        if abs(offset) > 1.0:
+            print(f"[ts] Clock offset: container is {offset:+.1f}s vs host")
+        return offset
+    except Exception:
+        return 0.0
+
+
 # -- Reset --
 
 def reset_and_clear(api: str) -> None:
@@ -98,19 +119,21 @@ def reset_and_clear(api: str) -> None:
 
 # -- Baseline traffic --
 
-def trigger_fast_baseline(
-    client_a: str = "ids_client_a",
-    client_b: str = "ids_client_b",
-) -> None:
-    print("[baseline] Triggering fast_baseline.sh on client containers...")
-    for c in (client_a, client_b):
+_BASELINE_NODES = [
+    "ids_node_1", "ids_node_2", "ids_node_3", "ids_node_4", "ids_node_5",
+]
+
+
+def trigger_fast_baseline() -> None:
+    print("[baseline] Triggering fast_baseline.sh on victim nodes...")
+    for node in _BASELINE_NODES:
         try:
             subprocess.Popen(
-                DOCKER_CMD + ["exec", c, "bash", "/scripts/fast_baseline.sh"],
+                DOCKER_CMD + ["exec", node, "bash", "/scripts/fast_baseline.sh"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            print(f"[baseline] WARNING: docker not found - skipping {c}")
+            print(f"[baseline] WARNING: docker not found - skipping {node}")
 
 
 def wait_for_ready(api: str, timeout_s: int = 360) -> dict:
@@ -296,21 +319,26 @@ def main() -> dict:
                         help="Skip OIF reset - evaluate model in its current state")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
     parser.add_argument("--threshold-critical", type=float, default=0.75)
-    parser.add_argument("--client-a",  default="ids_client_a")
-    parser.add_argument("--client-b",  default="ids_client_b")
     args = parser.parse_args()
 
     run_at = time.time()
 
     if not args.no_reset:
         reset_and_clear(args.api)
-        trigger_fast_baseline(args.client_a, args.client_b)
+        trigger_fast_baseline()
         wait_for_ready(args.api, timeout_s=args.timeout)
+
+    # Measure the host-to-container clock offset once.
+    # Flow ts fields come from the C engine's CLOCK_REALTIME (container clock).
+    # On Windows/WSL2 this can be hours behind the host clock, so ts_from must
+    # be expressed in container time, not host time.
+    ts_offset = _get_ts_offset(args.api)
 
     # Record the timestamp at which detection became active.
     # Only flows scored after this point count as baseline-quality observations.
-    obs_start = time.time()
-    obs_end   = obs_start + args.duration * 60
+    obs_start     = time.time()
+    obs_start_c   = obs_start + ts_offset   # container-aligned start
+    obs_end       = obs_start + args.duration * 60
 
     print(f"[eval] Observing benign traffic for {args.duration:.1f} min...")
     remaining = obs_end - time.time()
@@ -322,7 +350,7 @@ def main() -> dict:
     print()
 
     print("[eval] Querying flows...")
-    flows = _get_flows(args.api, ts_from=obs_start)
+    flows = _get_flows(args.api, ts_from=obs_start_c)
     print(f"[eval] {len(flows)} flows retrieved.")
 
     metrics = compute_baseline_metrics(flows, args.threshold_high, args.threshold_critical)
