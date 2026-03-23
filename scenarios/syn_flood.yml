@@ -10,7 +10,7 @@ attacker_ip: "172.20.0.20"
 
 attack:
   script: /attacks/syn_flood.sh
-  args: ["172.20.0.10", "80", "10000"]
+  args: ["80", "10000"]
 
 baseline:
   auto_baseline: true       # trigger fast_baseline.sh on both clients first

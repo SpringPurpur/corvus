@@ -12,7 +12,7 @@ attacker_ip: "172.20.0.20"
 
 attack:
   script: /attacks/http_flood.sh
-  args: ["http://172.20.0.10/", "10000", "100"]
+  args: ["10000", "100"]
 
 baseline:
   auto_baseline: true

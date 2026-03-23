@@ -15,7 +15,7 @@ attacker_ip: "172.20.0.20"
 
 attack:
   script: /attacks/slow_body.sh
-  args: ["http://172.20.0.10/", "200", "120"]
+  args: ["200", "120"]
 
 baseline:
   auto_baseline: true

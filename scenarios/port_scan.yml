@@ -11,7 +11,7 @@ attacker_ip: "172.20.0.20"
 
 attack:
   script: /attacks/port_scan.sh
-  args: ["172.20.0.10", "1-1000", "200"]
+  args: ["1-1000", "200"]
 
 baseline:
   auto_baseline: true

