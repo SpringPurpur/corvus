@@ -34,19 +34,25 @@ from pathlib import Path
 SEP        = "=" * 79
 DEFAULT_API = "http://localhost:8765"
 
-# Order matters: start with scenarios most likely to succeed so early failures
-# don't contaminate confidence in the whole suite.
+# Order matters for two reasons:
+#   1. High-volume scenarios (http_flood, ~13K flows) can overflow the C engine's
+#      IPC ring buffer. Port scan (~1000 micro-flows) and syn_flood (single long-
+#      lived flow) must run before these, or their flows get dropped mid-capture.
+#   2. syn_flood uses hping3 --syn with a fixed source port, so it creates one
+#      flow per target that stays in the C engine's table until the 120 s idle
+#      timeout. Running it after http_flood means the flow table may still be
+#      partially drained, causing the syn_flood flow to arrive at the wrong time.
 DEFAULT_SCENARIO_ORDER = [
     "slowloris",
     "slow_body",
     "slow_read",
     "ssh_bruteforce",
+    "port_scan",          # ~1000 micro-flows — must precede high-volume scenarios
+    "syn_flood",          # single long-lived flow; needs table headroom to be recorded
     "http_flood",
     "goldeneye",
     "http2_rapid_reset",
     "udp_flood",
-    "port_scan",
-    "syn_flood",
     "mixed",
 ]
 

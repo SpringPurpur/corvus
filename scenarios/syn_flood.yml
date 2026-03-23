@@ -18,4 +18,7 @@ baseline:
   timeout_s: 360
 
 recovery:
-  monitor_s: 120            # observe for 2 min after attack completes
+  monitor_s: 150            # hping3 --syn reuses source port → one flow per target
+                            # stays in the C engine's table until the 120 s idle timeout.
+                            # 150 s guarantees all flows have been finalised and sent to
+                            # Python before the result query fires.
