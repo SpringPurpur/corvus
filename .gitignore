@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.env
 inference/.env
 # Analyst runtime config — bind-mounted into the inference container.
 # Seeded with correct defaults; overwritten by dashboard saves at runtime.
