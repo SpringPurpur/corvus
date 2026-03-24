@@ -11,7 +11,7 @@ import anthropic
 
 log = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-4-6"
 
 _client: anthropic.AsyncAnthropic | None = None
 
@@ -39,7 +39,10 @@ async def explain(alert: dict) -> str:
             "Explain the alert in 2-3 sentences, referencing the top path-attribution "
             "features (the features that isolated this flow at the shallowest tree depth) "
             "and comparing their values to the provided baseline median. "
-            "Be specific about what the deviations indicate."
+            "Be specific about what the deviations indicate. "
+            "If the feature pattern matches a known network attack type "
+            "(e.g. slowloris, SSH brute-force, SYN flood, HTTP flood, port scan, "
+            "UDP flood, slow POST, slow read), name it explicitly."
         ),
         messages=[{"role": "user", "content": json.dumps(alert)}],
     )
@@ -86,8 +89,12 @@ async def ask(alerts_context: list[dict], question: str) -> str:
         model=MODEL,
         max_tokens=512,
         system=(
-            "You are a network security analyst assistant. "
-            "Answer questions about the provided alert data concisely and accurately."
+            "You are a network security analyst assistant for an intrusion detection system "
+            "using an Online Isolation Forest. Flows are scored 0–1 by how quickly they "
+            "isolate from the normal traffic baseline; scores above 0.80 are CRITICAL, "
+            "above 0.60 are HIGH. Answer questions about the provided alerts concisely "
+            "and accurately, referencing specific flows (by src_ip, dst_port, or flow_id) "
+            "when relevant."
         ),
         messages=[{
             "role": "user",

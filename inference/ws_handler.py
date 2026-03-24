@@ -6,7 +6,9 @@
 # broadcasts to all of them when a new alert arrives.
 
 import asyncio
+import json
 import logging
+import time
 from typing import Any
 
 import msgpack
@@ -101,8 +103,15 @@ async def _receive_loop(ws: WebSocket, llm_handler: Any) -> None:
         msg_type = msg.get("type")
 
         if msg_type == "feedback":
-            # Analyst correction — handed off to online_learner (fire and forget)
-            log.info("Feedback received for flow_id=%s", msg.get("flow_id"))
+            import storage
+            storage.upsert_feedback(
+                flow_id=msg.get("flow_id", ""),
+                ts=time.time(),
+                corrected_label=msg.get("corrected_label"),
+                dismiss=bool(msg.get("dismiss", False)),
+                reason=msg.get("reason", ""),
+            )
+            log.info("Feedback stored for flow_id=%s", msg.get("flow_id"))
 
         elif msg_type == "llm_request":
             # Browser asks for an LLM explanation — call async and reply
@@ -131,11 +140,19 @@ async def _handle_llm_request(
                 payload.get("question", ""),
             )
         elif fn_name == "parse_feedback":
-            result = await llm_handler.parse_feedback(
-                payload.get("alert", {}),
-                payload.get("analyst_text", ""),
+            alert = payload.get("alert", {})
+            analyst_text = payload.get("analyst_text", "")
+            result = await llm_handler.parse_feedback(alert, analyst_text)
+            import storage
+            storage.upsert_feedback(
+                flow_id=alert.get("flow_id", ""),
+                ts=time.time(),
+                corrected_label=result.get("corrected_label"),
+                dismiss=bool(result.get("dismiss", False)),
+                reason=result.get("reason", ""),
+                analyst_text=analyst_text,
             )
-            text = str(result)
+            text = json.dumps(result)
         else:
             text = f"Unknown function: {fn_name}"
     except Exception as exc:

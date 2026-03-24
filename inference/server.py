@@ -155,6 +155,11 @@ async def get_flows(
     )
 
 
+@app.get("/feedback")
+async def get_feedback(flow_id: Optional[str] = Query(default=None)) -> list:
+    return await run_in_threadpool(storage.query_feedback, flow_id=flow_id)
+
+
 @app.delete("/flows")
 async def delete_flows() -> dict:
     n = storage.clear_flows()

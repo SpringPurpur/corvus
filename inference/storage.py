@@ -61,6 +61,19 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_proto  ON flows(proto);
         CREATE INDEX IF NOT EXISTS idx_label  ON flows(label);
     """)
+    _conn.executescript("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id               INTEGER PRIMARY KEY,
+            flow_id          TEXT    NOT NULL,
+            ts               REAL    NOT NULL,
+            corrected_label  TEXT,
+            dismiss          INTEGER NOT NULL DEFAULT 0,
+            reason           TEXT,
+            analyst_text     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_flow_id ON feedback(flow_id);
+    """)
+
     # Schema migration: add score_oor if upgrading an existing DB that predates it.
     cols = {row[1] for row in _conn.execute("PRAGMA table_info(flows)").fetchall()}
     if "score_oor" not in cols:
@@ -182,6 +195,66 @@ def query_flows(
         read_conn.close()
 
     return [_row_to_alert(r) for r in rows]
+
+
+def upsert_feedback(
+    flow_id: str,
+    ts: float,
+    corrected_label: str | None,
+    dismiss: bool,
+    reason: str,
+    analyst_text: str | None = None,
+) -> None:
+    """Persist or overwrite analyst feedback for a flow."""
+    if _conn is None:
+        return
+    with _write_lock:
+        try:
+            _conn.execute(
+                """
+                INSERT OR REPLACE INTO feedback
+                    (flow_id, ts, corrected_label, dismiss, reason, analyst_text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (flow_id, ts, corrected_label, int(dismiss), reason, analyst_text),
+            )
+            _conn.commit()
+        except Exception:
+            log.warning("Failed to upsert feedback for flow %s", flow_id, exc_info=True)
+
+
+def query_feedback(flow_id: str | None = None) -> list[dict]:
+    """Return feedback records, optionally filtered by flow_id."""
+    if _conn is None:
+        return []
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        if flow_id:
+            rows = read_conn.execute(
+                "SELECT flow_id, ts, corrected_label, dismiss, reason, analyst_text "
+                "FROM feedback WHERE flow_id = ? ORDER BY ts DESC",
+                (flow_id,),
+            ).fetchall()
+        else:
+            rows = read_conn.execute(
+                "SELECT flow_id, ts, corrected_label, dismiss, reason, analyst_text "
+                "FROM feedback ORDER BY ts DESC LIMIT 200"
+            ).fetchall()
+    finally:
+        read_conn.close()
+
+    return [
+        {
+            "flow_id":         r[0],
+            "ts":              r[1],
+            "corrected_label": r[2],
+            "dismiss":         bool(r[3]),
+            "reason":          r[4] or "",
+            "analyst_text":    r[5],
+        }
+        for r in rows
+    ]
 
 
 def _row_to_alert(row: tuple) -> dict:
