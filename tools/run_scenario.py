@@ -113,18 +113,24 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
         tcp_ready = stats["tcp"].get("ready", False)
         udp_ready = stats["udp"].get("ready", False)
 
-        tcp_p = stats["tcp"].get("n_baseline", stats["tcp"].get("n_seen", 0))
-        udp_p = stats["udp"].get("n_baseline", stats["udp"].get("n_seen", 0))
+        tcp_p    = stats["tcp"].get("n_baseline", stats["tcp"].get("n_seen", 0))
+        udp_p    = stats["udp"].get("n_baseline", stats["udp"].get("n_seen", 0))
+        tcp_tgt  = stats["tcp"].get("n_baseline_target", 4096)
+        udp_tgt  = stats["udp"].get("n_baseline_target", 1024)
 
         if tcp_p != last_tcp or udp_p != last_udp:
             last_tcp, last_udp = tcp_p, udp_p
-            tcp_str = "READY" if tcp_ready else f"{tcp_p}"
-            udp_str = "READY" if udp_ready else f"{udp_p}"
+            tcp_str = "READY" if tcp_ready else f"{tcp_p}/{tcp_tgt}"
+            udp_str = "READY" if udp_ready else f"{udp_p}/{udp_tgt}"
             print(f"  TCP: {tcp_str}   UDP: {udp_str}")
 
         ready = tcp_ready and (udp_ready if needs_udp else True)
         if ready:
-            print("[baseline] Detectors ready.\n")
+            if not needs_udp and not udp_ready:
+                print(f"[baseline] TCP ready — UDP still filling in background "
+                      f"({udp_p}/{udp_tgt}, not required for this scenario).\n")
+            else:
+                print("[baseline] Detectors ready.\n")
             return stats
 
         time.sleep(5)
