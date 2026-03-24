@@ -51,6 +51,15 @@ export interface Alert {
   timing?:     PipelineTiming
 }
 
+export interface Feedback {
+  flow_id:         string
+  ts:              number
+  corrected_label: string | null
+  dismiss:         boolean
+  reason:          string
+  analyst_text?:   string
+}
+
 export interface OifMetrics {
   n_seen:         number
   n_trained:      number

@@ -108,6 +108,7 @@ export default function App() {
                 <div className="h-1/2 overflow-hidden">
                   <LLMPanel
                     alert={selected}
+                    allAlerts={alerts}
                     send={send as (msg: FeedbackMsg | LlmRequestMsg) => void}
                     llmResponses={llmResponses}
                   />
