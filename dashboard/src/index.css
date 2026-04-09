@@ -4,14 +4,45 @@
 
 @layer base {
   :root {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 92%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 92%;
-    --muted: 217 33% 18%;
+    /* Layout color tokens — overridden at runtime by ThemeContext */
+    --background:       222 47% 8%;
+    --foreground:       210 40% 92%;
+    --card:             222 47% 11%;
+    --card-foreground:  210 40% 92%;
+    --muted:            217 33% 18%;
     --muted-foreground: 215 20% 55%;
-    --border: 217 33% 20%;
-    --radius: 0.5rem;
+    --border:           217 33% 20%;
+    --radius:           0.5rem;
+
+    /* Semantic color tokens — overridden at runtime by ThemeContext */
+    --color-online:            #34d399;
+    --color-offline:           #52525b;
+    --color-baselining:        #fbbf24;
+    --color-sev-info-bg:       rgba(63,63,70,0.8);
+    --color-sev-info-text:     #e4e4e7;
+    --color-sev-high-bg:       rgba(120,53,15,0.6);
+    --color-sev-high-text:     #fcd34d;
+    --color-sev-crit-bg:       rgba(127,29,29,0.6);
+    --color-sev-crit-text:     #fca5a5;
+    --color-bar-primary:       #3b82f6;
+    --color-bar-secondary:     #6366f1;
+    --color-bar-latency:       #10b981;
+    --color-score-normal:      #3b82f6;
+    --color-score-high:        #f59e0b;
+    --color-score-crit:        #ef4444;
+    --color-trained:           #10b981;
+    --color-rejected:          #f59e0b;
+    --color-count-trained:     #34d399;
+    --color-count-rejected:    #fbbf24;
+    --color-badge-danger-bg:   rgba(239,68,68,0.2);
+    --color-badge-danger-text: #f87171;
+    --color-badge-danger-bdr:  rgba(239,68,68,0.3);
+    --color-badge-warn-bg:     rgba(245,158,11,0.2);
+    --color-badge-warn-text:   #fbbf24;
+    --color-badge-warn-bdr:    rgba(245,158,11,0.3);
+    --color-accent:            #2563eb;
+    --color-accent-hover:      #3b82f6;
+    --font-ui:                 ui-sans-serif, system-ui, sans-serif;
   }
 }
 
@@ -22,7 +53,7 @@
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   margin: 0;
 }
@@ -30,3 +61,34 @@ body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: hsl(var(--background)); }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+
+/* ── CRT scanline overlay for retro themes ───────────────────────────── */
+html[data-theme="cnc"]::after,
+html[data-theme="terminal"]::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.06) 3px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── C&C title glow ──────────────────────────────────────────────────── */
+html[data-theme="cnc"] .brand-title,
+html[data-theme="terminal"] .brand-title {
+  text-shadow: 0 0 8px currentColor;
+  letter-spacing: 0.15em;
+}
+
+/* ── Tab active indicator follows accent ─────────────────────────────── */
+html[data-theme="cnc"] [data-active-tab],
+html[data-theme="terminal"] [data-active-tab] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}

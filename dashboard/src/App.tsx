@@ -9,6 +9,7 @@ import { LLMPanel } from './components/LLMPanel'
 import { ModelHealth } from './components/ModelHealth'
 import { StatsBar } from './components/StatsBar'
 import { SettingsPanel } from './components/SettingsPanel'
+import { ThemeProvider, useTheme } from './context/ThemeContext'
 
 // Accumulated LLM responses keyed by request_id — never reset, grows per session
 const llmResponses: Record<string, string> = {}
@@ -18,12 +19,14 @@ const DEFAULT_CONFIG: AppConfig = {
   baseline_tcp: 4096, baseline_udp: 1024,
 }
 
-export default function App() {
+function AppInner() {
   const [tab, setTab] = useState<'TCP' | 'UDP' | 'Health'>('TCP')
   const [selected, setSelected] = useState<Alert | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
   const [, forceRender] = useState(0)
+
+  const { theme } = useTheme()
 
   const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory, clearAlerts } = useAlerts()
 
@@ -54,7 +57,7 @@ export default function App() {
   const allAlerts = [...tcp, ...udp]
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen" data-theme={theme}>
       <StatusBar
         connected={connected}
         captureUp={captureUp}
@@ -75,11 +78,13 @@ export default function App() {
           <button
             key={t}
             onClick={() => { setTab(t); setSelected(null) }}
+            {...(tab === t ? { 'data-active-tab': '' } : {})}
             className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
               tab === t
-                ? 'border-blue-400 text-foreground'
+                ? 'border-current text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
+            style={tab === t ? { borderColor: 'var(--color-accent)' } : {}}
           >
             {t}
           </button>
@@ -121,5 +126,13 @@ export default function App() {
 
       <StatsBar alerts={allAlerts} />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
   )
 }

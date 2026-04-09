@@ -16,10 +16,8 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs">
       <span
-        className={cn(
-          'h-2 w-2 rounded-full',
-          on ? 'bg-emerald-400' : 'bg-zinc-600',
-        )}
+        className="h-2 w-2 rounded-full"
+        style={{ backgroundColor: on ? 'var(--color-online)' : 'var(--color-offline)' }}
       />
       {label}
     </span>
@@ -30,13 +28,21 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
-        <span className="font-semibold tracking-tight text-foreground mr-3">Corvus IDS</span>
+        <span className="brand-title font-semibold tracking-tight text-foreground mr-3">
+          Corvus IDS
+        </span>
         <Dot on={connected} label="WebSocket" />
         <Dot on={captureUp} label="Capture" />
         <Dot on={modelsLoaded} label="Models" />
         {baselining && (
-          <span className="flex items-center gap-1.5 text-xs text-amber-400 ml-2">
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+          <span
+            className="flex items-center gap-1.5 text-xs ml-2"
+            style={{ color: 'var(--color-baselining)' }}
+          >
+            <span
+              className="h-2 w-2 rounded-full animate-pulse"
+              style={{ backgroundColor: 'var(--color-baselining)' }}
+            />
             Baselining {Math.round(baselineProgress * 100)}%
           </span>
         )}
@@ -47,7 +53,10 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
         <button
           onClick={onClearLogs}
           title="Clear stored flow logs"
-          className="ml-1 text-muted-foreground hover:text-red-400 transition-colors text-xs leading-none"
+          className={cn(
+            'ml-1 transition-colors text-xs leading-none',
+            'text-muted-foreground hover:text-foreground',
+          )}
           aria-label="Clear logs"
         >
           Clear logs

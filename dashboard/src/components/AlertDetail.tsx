@@ -8,7 +8,6 @@ function AttributionBar({ entry }: { entry: AttributionEntry }) {
   const pct = Math.min(entry.score * 100, 100)
   const hasBaseline = entry.baseline?.median !== undefined
 
-  // Format raw value: show integers without decimals, floats to 2 dp
   const fmt = (n: number) =>
     Number.isInteger(n) ? n.toString() : n.toFixed(2)
 
@@ -16,8 +15,11 @@ function AttributionBar({ entry }: { entry: AttributionEntry }) {
     <div className="space-y-0.5">
       <div className="flex items-center gap-2 text-xs">
         <span className="w-36 truncate text-muted-foreground text-right">{entry.feature}</span>
-        <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-          <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
+        <div className="flex-1 bg-muted h-2 overflow-hidden" style={{ borderRadius: 'var(--radius)' }}>
+          <div
+            className="h-full"
+            style={{ width: `${pct}%`, backgroundColor: 'var(--color-bar-primary)', borderRadius: 'var(--radius)' }}
+          />
         </div>
         <span className="w-10 tabular-nums text-right text-muted-foreground">{(pct).toFixed(0)}%</span>
       </div>
@@ -68,16 +70,20 @@ export function AlertDetail({ alert }: Props) {
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Window scores</h3>
           <div className="space-y-1">
             {([
-              ['Fast  (256)',  scores.fast,      0.20],
-              ['Medium (1k)',  scores.medium,    0.30],
-              ['Slow  (4k)',   scores.slow,      0.50],
+              ['Fast  (256)',  scores.fast,   0.20],
+              ['Medium (1k)',  scores.medium, 0.30],
+              ['Slow  (4k)',   scores.slow,   0.50],
             ] as [string, number, number][]).map(([label, score, weight]) => (
               <div key={label} className="flex items-center gap-2 text-xs">
                 <span className="w-24 text-muted-foreground text-right">{label}</span>
-                <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+                <div className="flex-1 bg-muted h-1.5 overflow-hidden" style={{ borderRadius: 'var(--radius)' }}>
                   <div
-                    className="h-full rounded-full bg-indigo-500"
-                    style={{ width: `${Math.min(score * 100, 100)}%` }}
+                    className="h-full"
+                    style={{
+                      width: `${Math.min(score * 100, 100)}%`,
+                      backgroundColor: 'var(--color-bar-secondary)',
+                      borderRadius: 'var(--radius)',
+                    }}
                   />
                 </div>
                 <span className="w-10 tabular-nums text-right">{(score * 100).toFixed(1)}%</span>
@@ -121,16 +127,13 @@ export function AlertDetail({ alert }: Props) {
 function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
   const { flow_ts_ns, t_socket_ns, t_infer_ns, t_ws_ns, t_browser_ms } = timing
 
-  // All ns timestamps share CLOCK_REALTIME with Date.now() (ms).
-  // Convert ns → ms for display. JS number loses sub-512ns precision at this
-  // magnitude but millisecond-scale measurements are unaffected.
   const ns2ms = (ns: number) => ns / 1_000_000
 
   const stages: [string, number][] = [
-    ['IPC + decode',      ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
-    ['Queue wait',        ns2ms(t_infer_ns)   - ns2ms(t_socket_ns)],
-    ['OIF inference',     ns2ms(t_ws_ns)      - ns2ms(t_infer_ns)],
-    ['WS → browser',      t_browser_ms!       - ns2ms(t_ws_ns)],
+    ['IPC + decode',  ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
+    ['Queue wait',    ns2ms(t_infer_ns)   - ns2ms(t_socket_ns)],
+    ['OIF inference', ns2ms(t_ws_ns)      - ns2ms(t_infer_ns)],
+    ['WS → browser',  t_browser_ms!       - ns2ms(t_ws_ns)],
   ]
   const total = t_browser_ms! - ns2ms(flow_ts_ns)
   const maxStage = Math.max(...stages.map(([, v]) => v))
@@ -140,10 +143,14 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
       {stages.map(([label, ms]) => (
         <div key={label} className="flex items-center gap-2 text-xs">
           <span className="w-28 text-muted-foreground text-right shrink-0">{label}</span>
-          <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+          <div className="flex-1 bg-muted h-1.5 overflow-hidden" style={{ borderRadius: 'var(--radius)' }}>
             <div
-              className="h-full rounded-full bg-emerald-500"
-              style={{ width: `${Math.min((ms / maxStage) * 100, 100)}%` }}
+              className="h-full"
+              style={{
+                width: `${Math.min((ms / maxStage) * 100, 100)}%`,
+                backgroundColor: 'var(--color-bar-latency)',
+                borderRadius: 'var(--radius)',
+              }}
             />
           </div>
           <span className="w-14 tabular-nums text-right">{ms.toFixed(2)} ms</span>

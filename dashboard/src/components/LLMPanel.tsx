@@ -103,10 +103,10 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
         {feedback ? (
           <div className="flex flex-col gap-1 text-xs">
             {feedback.dismiss && (
-              <span className="text-amber-400">Marked as false positive</span>
+              <span style={{ color: 'var(--color-badge-warn-text)' }}>Marked as false positive</span>
             )}
             {feedback.corrected_label && (
-              <span className="text-blue-400">Severity corrected → {feedback.corrected_label}</span>
+              <span style={{ color: 'var(--color-bar-primary)' }}>Severity corrected → {feedback.corrected_label}</span>
             )}
             {feedback.reason && (
               <span className="text-muted-foreground">Reason: {feedback.reason}</span>

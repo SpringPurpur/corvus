@@ -1,15 +1,23 @@
 import { cn } from '../lib/utils'
 import type { Alert, Severity } from '../types'
 
-const SEV_CLASSES: Record<Severity, string> = {
-  INFO:     'bg-zinc-700 text-zinc-200',
-  HIGH:     'bg-amber-900/60 text-amber-300',
-  CRITICAL: 'bg-red-900/60 text-red-300',
+const SEV_VAR: Record<Severity, { bg: string; text: string }> = {
+  INFO:     { bg: 'var(--color-sev-info-bg)',  text: 'var(--color-sev-info-text)'  },
+  HIGH:     { bg: 'var(--color-sev-high-bg)',  text: 'var(--color-sev-high-text)'  },
+  CRITICAL: { bg: 'var(--color-sev-crit-bg)',  text: 'var(--color-sev-crit-text)'  },
 }
 
 function SevBadge({ sev }: { sev: Severity }) {
+  const { bg, text } = SEV_VAR[sev]
   return (
-    <span className={cn('px-1.5 py-0.5 rounded text-[11px] font-medium', SEV_CLASSES[sev])}>
+    <span
+      className="px-1.5 py-0.5 text-[11px] font-medium"
+      style={{
+        backgroundColor: bg,
+        color: text,
+        borderRadius: 'var(--radius)',
+      }}
+    >
       {sev}
     </span>
   )

@@ -6,7 +6,6 @@
 // an attack ends reflects the window forgetting the attack distribution.
 
 import type { OifMetrics, AppConfig } from '../types'
-import { cn } from '../lib/utils'
 
 interface Props {
   tcp: OifMetrics
@@ -15,9 +14,24 @@ interface Props {
 }
 
 function rejectionBadge(rate: number) {
-  if (rate > 0.30) return { label: 'Attack likely active', cls: 'bg-red-500/20 text-red-400 border-red-500/30' }
-  if (rate > 0.10) return { label: 'Elevated',             cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30' }
-  return                  { label: 'Nominal',              cls: 'bg-muted text-muted-foreground border-border' }
+  if (rate > 0.30) return {
+    label: 'Attack likely active',
+    bg:  'var(--color-badge-danger-bg)',
+    fg:  'var(--color-badge-danger-text)',
+    bdr: 'var(--color-badge-danger-bdr)',
+  }
+  if (rate > 0.10) return {
+    label: 'Elevated',
+    bg:  'var(--color-badge-warn-bg)',
+    fg:  'var(--color-badge-warn-text)',
+    bdr: 'var(--color-badge-warn-bdr)',
+  }
+  return {
+    label: 'Nominal',
+    bg:  'hsl(var(--muted))',
+    fg:  'hsl(var(--muted-foreground))',
+    bdr: 'hsl(var(--border))',
+  }
 }
 
 function ScoreSparkline({ scores, thHigh, thCrit }: { scores: number[]; thHigh: number; thCrit: number }) {
@@ -28,15 +42,19 @@ function ScoreSparkline({ scores, thHigh, thCrit }: { scores: number[]; thHigh: 
       {scores.map((s, i) => {
         const height = Math.max(s * 100, 4)
         const colour =
-          s >= thCrit ? 'bg-red-500' :
-          s >= thHigh ? 'bg-amber-500' :
-                        'bg-blue-500'
+          s >= thCrit ? 'var(--color-score-crit)' :
+          s >= thHigh ? 'var(--color-score-high)' :
+                        'var(--color-score-normal)'
         return (
           <div
             key={i}
             title={`${(s * 100).toFixed(1)}%`}
-            className={cn('flex-1 rounded-sm', colour)}
-            style={{ height: `${height}%` }}
+            className="flex-1"
+            style={{
+              height: `${height}%`,
+              backgroundColor: colour,
+              borderRadius: 'calc(var(--radius) / 2)',
+            }}
           />
         )
       })}
@@ -48,14 +66,22 @@ function ProtocolPanel({ label, m, thHigh, thCrit }: {
   label: string; m: OifMetrics; thHigh: number; thCrit: number
 }) {
   const badge   = rejectionBadge(m.rejection_rate)
-  const trained = m.n_seen > 0 ? (m.n_trained / m.n_seen) * 100 : 0
+  const trained  = m.n_seen > 0 ? (m.n_trained  / m.n_seen) * 100 : 0
   const rejected = m.n_seen > 0 ? (m.n_rejected / m.n_seen) * 100 : 0
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</h3>
-        <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-medium', badge.cls)}>
+        <span
+          className="text-[10px] px-2 py-0.5 border font-medium"
+          style={{
+            backgroundColor: badge.bg,
+            color: badge.fg,
+            borderColor: badge.bdr,
+            borderRadius: 'var(--radius)',
+          }}
+        >
           {m.ready ? badge.label : 'Baselining…'}
         </span>
       </div>
@@ -67,20 +93,30 @@ function ProtocolPanel({ label, m, thHigh, thCrit }: {
           <div className="text-muted-foreground text-[10px]">seen</div>
         </div>
         <div>
-          <div className="text-emerald-400 font-medium tabular-nums">{m.n_trained.toLocaleString()}</div>
+          <div className="font-medium tabular-nums" style={{ color: 'var(--color-count-trained)' }}>
+            {m.n_trained.toLocaleString()}
+          </div>
           <div className="text-muted-foreground text-[10px]">trained</div>
         </div>
         <div>
-          <div className="text-amber-400 font-medium tabular-nums">{m.n_rejected.toLocaleString()}</div>
+          <div className="font-medium tabular-nums" style={{ color: 'var(--color-count-rejected)' }}>
+            {m.n_rejected.toLocaleString()}
+          </div>
           <div className="text-muted-foreground text-[10px]">rejected</div>
         </div>
       </div>
 
       {/* Trained / rejected split bar */}
       <div>
-        <div className="flex h-2 rounded-full overflow-hidden bg-muted">
-          <div className="bg-emerald-500 transition-all" style={{ width: `${trained}%` }} />
-          <div className="bg-amber-500 transition-all"   style={{ width: `${rejected}%` }} />
+        <div className="flex h-2 overflow-hidden bg-muted" style={{ borderRadius: 'var(--radius)' }}>
+          <div
+            className="transition-all"
+            style={{ width: `${trained}%`, backgroundColor: 'var(--color-trained)' }}
+          />
+          <div
+            className="transition-all"
+            style={{ width: `${rejected}%`, backgroundColor: 'var(--color-rejected)' }}
+          />
         </div>
         <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
           <span>trained {trained.toFixed(1)}%</span>
