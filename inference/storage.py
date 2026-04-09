@@ -54,7 +54,10 @@ def init_db() -> None:
             score_comp   REAL,
             score_oor    REAL,
             attribution  TEXT,
-            shap         TEXT
+            shap         TEXT,
+            flow_ts_ns   INTEGER,
+            t_socket_ns  INTEGER,
+            t_infer_ns   INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_ts     ON flows(ts);
         CREATE INDEX IF NOT EXISTS idx_src_ip ON flows(src_ip);
@@ -74,11 +77,16 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_feedback_flow_id ON feedback(flow_id);
     """)
 
-    # Schema migration: add score_oor if upgrading an existing DB that predates it.
+    # Schema migrations for columns added after initial release.
     cols = {row[1] for row in _conn.execute("PRAGMA table_info(flows)").fetchall()}
     if "score_oor" not in cols:
         _conn.execute("ALTER TABLE flows ADD COLUMN score_oor REAL")
         log.info("Migrated flows table: added score_oor column")
+    if "flow_ts_ns" not in cols:
+        _conn.execute("ALTER TABLE flows ADD COLUMN flow_ts_ns INTEGER")
+        _conn.execute("ALTER TABLE flows ADD COLUMN t_socket_ns INTEGER")
+        _conn.execute("ALTER TABLE flows ADD COLUMN t_infer_ns INTEGER")
+        log.info("Migrated flows table: added timing columns")
     _conn.commit()
     log.info("SQLite DB ready at %s", DB_PATH)
 
@@ -91,6 +99,8 @@ def insert_flow(alert: dict) -> None:
     v = alert.get("verdict", {})
     s = alert.get("scores", {})
 
+    t = alert.get("_timing", {})
+
     with _write_lock:
         try:
             _conn.execute(
@@ -100,8 +110,9 @@ def insert_flow(alert: dict) -> None:
                      proto, duration, fwd_pkts,
                      label, severity, confidence,
                      score_fast, score_medium, score_slow, score_comp, score_oor,
-                     attribution, shap)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     attribution, shap,
+                     flow_ts_ns, t_socket_ns, t_infer_ns)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     alert["flow_id"], alert["ts"],
@@ -113,6 +124,7 @@ def insert_flow(alert: dict) -> None:
                     s.get("oor"),
                     json.dumps(alert.get("attribution", [])),
                     json.dumps(alert.get("shap", [])),
+                    t.get("flow_ts_ns"), t.get("t_socket_ns"), t.get("t_infer_ns"),
                 ),
             )
             _conn.commit()
@@ -183,7 +195,8 @@ def query_flows(
                    proto, duration, fwd_pkts,
                    label, severity, confidence,
                    score_fast, score_medium, score_slow, score_comp, score_oor,
-                   attribution, shap
+                   attribution, shap,
+                   flow_ts_ns, t_socket_ns, t_infer_ns
             FROM flows
             {where}
             ORDER BY ts DESC
@@ -262,7 +275,8 @@ def _row_to_alert(row: tuple) -> dict:
      proto, duration, fwd_pkts,
      label, severity, confidence,
      fast, medium, slow, comp, oor,
-     attribution_json, shap_json) = row
+     attribution_json, shap_json,
+     flow_ts_ns, t_socket_ns, t_infer_ns) = row
 
     return {
         "flow_id":     flow_id,
@@ -290,4 +304,9 @@ def _row_to_alert(row: tuple) -> dict:
         # without navigating the nested dict.
         "score_comp":  comp,
         "attribution": json.loads(attribution_json or "[]"),
+        "timing": {
+            "flow_ts_ns":  flow_ts_ns,
+            "t_socket_ns": t_socket_ns,
+            "t_infer_ns":  t_infer_ns,
+        },
     }
