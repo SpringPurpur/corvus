@@ -294,6 +294,7 @@ def main() -> None:
 
     # Save summary
     results_dir = root / "scenarios" / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
     ts_str      = datetime.fromtimestamp(run_at).strftime("%Y%m%d_%H%M%S")
     out_path    = results_dir / f"eval_all_{ts_str}.json"
     summary = {

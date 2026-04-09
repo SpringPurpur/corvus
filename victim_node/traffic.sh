@@ -15,7 +15,7 @@ log() { echo "[$(date '+%H:%M:%S')] [node-${NODE_IP##*.}] $*"; }
 
 # Build peer list by excluding own IP
 build_peers() {
-    echo "${PEERS}" | tr ',' '\n' | grep -v "^${NODE_IP}$"
+    echo "${PEERS}" | tr ',' '\n' | grep -vF "${NODE_IP}"
 }
 
 random_peer() {

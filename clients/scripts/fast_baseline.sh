@@ -21,7 +21,7 @@ NTP=172.20.0.51
 # With shuf picking from all 5 nodes, 1/5 of flows were invisible regardless
 # of TCP_COUNT — this was the main cause of the ~3700/4096 shortfall.
 MY_IP=$(hostname -I | awk '{print $1}')
-TARGETS=$(echo "$NODES" | tr ' ' '\n' | grep -v "^${MY_IP}$" | paste -sd ' ')
+TARGETS=$(echo "$NODES" | tr ' ' '\n' | grep -vF "${MY_IP}" | paste -sd ' ')
 [ -z "$TARGETS" ] && TARGETS="$NODES"   # fallback if hostname -I fails
 
 TCP_COUNT=${1:-1100}   # 1100 flows per node × 5 nodes, all to OTHER nodes (self

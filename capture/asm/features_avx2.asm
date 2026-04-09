@@ -74,8 +74,6 @@ compute_pkt_len_stats_avx2:
     vpxor   ymm5, ymm5, ymm5
     vpmovzxdq ymm5, xmm2        ; low 4 × uint32 → uint64
     vextracti128 xmm6, ymm2, 1
-    vpxor   ymm6, ymm6, ymm6    ; re-zero (we only want the extract)
-    vextracti128 xmm6, ymm2, 1
     vpmovzxdq ymm6, xmm6        ; high 4 × uint32 → uint64
 
     vpaddq  ymm5, ymm5, ymm6

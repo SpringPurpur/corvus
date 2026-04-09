@@ -259,3 +259,5 @@ def _handle_client_safe(conn: socket.socket, out_queue: queue.Queue) -> None:
         _handle_client(conn, out_queue)
     except Exception:
         log.exception("_handle_client crashed unexpectedly")
+    finally:
+        conn.close()

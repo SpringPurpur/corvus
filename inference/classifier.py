@@ -218,7 +218,7 @@ class Classifier:
             "attribution": result["attribution"],  # top-3 OIF path-depth attribution
             # Pipeline latency timestamps (nanoseconds, CLOCK_REALTIME)
             "_timing": {
-                "flow_ts_ns":  flow.get("last_pkt_ns", 0),
+                "flow_ts_ns":  flow.get("first_pkt_ns", 0),
                 "t_socket_ns": flow.get("t_socket_ns", 0),
                 "t_infer_ns":  t_infer_ns,
             },

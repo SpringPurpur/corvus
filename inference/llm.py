@@ -77,8 +77,8 @@ async def parse_feedback(alert: dict, analyst_text: str) -> dict:
     try:
         return json.loads(response.content[0].text)
     except json.JSONDecodeError:
-        log.warning("LLM returned non-JSON for parse_feedback")
-        return {"corrected_label": None, "dismiss": False, "reason": analyst_text}
+        log.warning("LLM returned non-JSON for parse_feedback: %s", response.content[0].text)
+        return {"corrected_label": None, "dismiss": False, "reason": "Feedback noted (auto-parse failed)"}
 
 
 async def ask(alerts_context: list[dict], question: str) -> str:

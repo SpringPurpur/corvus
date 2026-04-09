@@ -22,9 +22,11 @@ export function useWebSocket(
   const wsRef = useRef<WebSocket | null>(null)
   const backoffRef = useRef(1000)
   const onMessageRef = useRef(onMessage)
+  const mountedRef = useRef(true)
   onMessageRef.current = onMessage
 
   const connect = useCallback(() => {
+    if (!mountedRef.current) return
     const ws = new WebSocket(WS_URL)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
@@ -50,6 +52,7 @@ export function useWebSocket(
 
     ws.onclose = () => {
       setConnected(false)
+      if (!mountedRef.current) return   // don't reconnect after unmount
       const delay = backoffRef.current
       backoffRef.current = Math.min(delay * 2, 30000)
       setTimeout(connect, delay)
@@ -61,8 +64,10 @@ export function useWebSocket(
   }, [])
 
   useEffect(() => {
+    mountedRef.current = true
     connect()
     return () => {
+      mountedRef.current = false
       wsRef.current?.close()
     }
   }, [connect])

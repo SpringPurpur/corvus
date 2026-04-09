@@ -127,16 +127,20 @@ export function AlertDetail({ alert }: Props) {
 function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
   const { flow_ts_ns, t_socket_ns, t_infer_ns, t_ws_ns, t_browser_ms } = timing
 
+  // Guard: any missing ns field (sent as 0 by server) makes that stage meaningless.
+  // Only render the section when all four timestamps are present and non-zero.
+  if (!flow_ts_ns || !t_socket_ns || !t_infer_ns || !t_ws_ns || !t_browser_ms) return null
+
   const ns2ms = (ns: number) => ns / 1_000_000
 
   const stages: [string, number][] = [
     ['IPC + decode',  ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
     ['Queue wait',    ns2ms(t_infer_ns)   - ns2ms(t_socket_ns)],
     ['OIF inference', ns2ms(t_ws_ns)      - ns2ms(t_infer_ns)],
-    ['WS → browser',  t_browser_ms!       - ns2ms(t_ws_ns)],
+    ['WS → browser',  t_browser_ms        - ns2ms(t_ws_ns)],
   ]
-  const total = t_browser_ms! - ns2ms(flow_ts_ns)
-  const maxStage = Math.max(...stages.map(([, v]) => v))
+  const total = t_browser_ms - ns2ms(flow_ts_ns)
+  const maxStage = Math.max(...stages.map(([, v]) => v), 0.001)  // prevent /0
 
   return (
     <div className="space-y-1">
@@ -147,7 +151,7 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
             <div
               className="h-full"
               style={{
-                width: `${Math.min((ms / maxStage) * 100, 100)}%`,
+                width: `${Math.min(Math.max((ms / maxStage) * 100, 0), 100)}%`,
                 backgroundColor: 'var(--color-bar-latency)',
                 borderRadius: 'var(--radius)',
               }}
