@@ -1,5 +1,5 @@
-// SettingsPanel.tsx — analyst-facing configuration: alert thresholds and
-// baseline management. Opened via the gear icon in StatusBar.
+// SettingsPanel.tsx — analyst-facing configuration: alert thresholds,
+// baseline management, and visual theme selection.
 //
 // Thresholds take effect immediately on save (inference engine reads cfg
 // per-flow with no restart needed). Baseline reset discards the trained
@@ -8,6 +8,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppConfig } from '../types'
 import { cn } from '../lib/utils'
+import { THEMES } from '../themes'
+import { useTheme } from '../context/ThemeContext'
+
+const DEV_STORAGE_KEY = 'corvus-dev-mode'
 
 interface Props {
   onClose: () => void
@@ -21,10 +25,15 @@ const DEFAULT_CFG: AppConfig = {
 }
 
 export function SettingsPanel({ onClose }: Props) {
-  const [cfg, setCfg]           = useState<AppConfig>(DEFAULT_CFG)
-  const [saving, setSaving]     = useState(false)
-  const [saveMsg, setSaveMsg]   = useState<string | null>(null)
+  const [cfg, setCfg]             = useState<AppConfig>(DEFAULT_CFG)
+  const [saving, setSaving]       = useState(false)
+  const [saveMsg, setSaveMsg]     = useState<string | null>(null)
   const [resetting, setResetting] = useState<string | null>(null)
+  const [devMode, setDevMode]     = useState(() => localStorage.getItem(DEV_STORAGE_KEY) === '1')
+  const [fbState, setFbState]     = useState<'idle' | 'running' | 'ok' | 'err'>('idle')
+  const [fbMsg, setFbMsg]         = useState<string | null>(null)
+
+  const { theme, setTheme } = useTheme()
 
   // Load current config from inference engine on open
   useEffect(() => {
@@ -60,6 +69,36 @@ export function SettingsPanel({ onClose }: Props) {
     }
   }, [cfg])
 
+  const toggleDevMode = useCallback((next: boolean) => {
+    localStorage.setItem(DEV_STORAGE_KEY, next ? '1' : '0')
+    setDevMode(next)
+    if (!next) { setFbState('idle'); setFbMsg(null) }
+  }, [])
+
+  const handleFastBaseline = useCallback(async () => {
+    setFbState('running')
+    setFbMsg(null)
+    try {
+      const r = await fetch('/dev/fast-baseline', { method: 'POST' })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setFbState('err')
+        setFbMsg(body.detail ?? 'Request failed.')
+      } else {
+        const triggered: string[] = body.triggered ?? []
+        const skipped:   string[] = body.skipped   ?? []
+        setFbState('ok')
+        setFbMsg(
+          `Started on ${triggered.length} node${triggered.length !== 1 ? 's' : ''}` +
+          (skipped.length ? ` (${skipped.length} not found)` : '') + '.'
+        )
+      }
+    } catch {
+      setFbState('err')
+      setFbMsg('Network error.')
+    }
+  }, [])
+
   const handleReset = useCallback(async (protocol: 'TCP' | 'UDP' | 'all') => {
     setResetting(protocol)
     try {
@@ -82,7 +121,8 @@ export function SettingsPanel({ onClose }: Props) {
     >
       {/* Panel — stop propagation so clicking inside doesn't close */}
       <div
-        className="w-[420px] rounded-lg border bg-card shadow-xl flex flex-col gap-0 overflow-hidden"
+        className="w-[440px] border bg-card shadow-xl flex flex-col gap-0 overflow-hidden"
+        style={{ borderRadius: 'var(--radius)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -99,9 +139,48 @@ export function SettingsPanel({ onClose }: Props) {
 
         <div className="flex flex-col gap-5 p-5 overflow-y-auto">
 
-          {/* Thresholds */}
+          {/* ── Appearance ─────────────────────────────────────────────── */}
           <section className="flex flex-col gap-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Appearance
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {THEMES.map((t) => {
+                const active = theme === t.name
+                return (
+                  <button
+                    key={t.name}
+                    onClick={() => setTheme(t.name)}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 border text-left transition-colors',
+                      active
+                        ? 'text-foreground'
+                        : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/50',
+                    )}
+                    style={active ? {
+                      borderColor: 'var(--color-accent)',
+                      backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+                      borderRadius: 'var(--radius)',
+                    } : { borderRadius: 'var(--radius)' }}
+                  >
+                    {/* Swatch */}
+                    <span
+                      className="h-5 w-5 shrink-0 border border-border/40"
+                      style={{ backgroundColor: t.swatch, borderRadius: 'calc(var(--radius) / 2)' }}
+                    />
+                    <div>
+                      <div className="text-xs font-medium leading-tight">{t.label}</div>
+                      <div className="text-[10px] opacity-60 leading-tight">{t.description}</div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Thresholds ─────────────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Alert Thresholds  <span className="font-normal normal-case">(OIF composite score 0–1)</span>
             </h3>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -113,19 +192,19 @@ export function SettingsPanel({ onClose }: Props) {
               label="HIGH"
               value={cfg.threshold_high}
               min={0.30} max={cfg.threshold_critical - 0.01}
-              color="bg-amber-400"
+              varName="--color-badge-warn-text"
               onChange={(v) => set('threshold_high', v)}
             />
             <ThresholdSlider
               label="CRITICAL"
               value={cfg.threshold_critical}
               min={cfg.threshold_high + 0.01} max={0.99}
-              color="bg-red-500"
+              varName="--color-badge-danger-text"
               onChange={(v) => set('threshold_critical', v)}
             />
           </section>
 
-          {/* Baseline sizes */}
+          {/* ── Baseline window ────────────────────────────────────────── */}
           <section className="flex flex-col gap-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Baseline Window  <span className="font-normal normal-case">(flows before detection activates)</span>
@@ -148,24 +227,33 @@ export function SettingsPanel({ onClose }: Props) {
               onClick={handleSave}
               disabled={saving}
               className={cn(
-                'px-4 py-1.5 rounded text-xs font-medium transition-colors',
-                'bg-blue-600 hover:bg-blue-500 text-white',
+                'px-4 py-1.5 text-xs font-medium transition-colors text-white',
                 saving && 'opacity-50 cursor-not-allowed',
               )}
+              style={{
+                backgroundColor: 'var(--color-accent)',
+                borderRadius: 'var(--radius)',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-accent-hover)'
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-accent)'
+              }}
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
             {saveMsg && (
-              <span className={cn(
-                'text-xs',
-                saveMsg === 'Saved.' ? 'text-emerald-400' : 'text-red-400',
-              )}>
+              <span
+                className="text-xs"
+                style={{ color: saveMsg === 'Saved.' ? 'var(--color-count-trained)' : 'var(--color-badge-danger-text)' }}
+              >
                 {saveMsg}
               </span>
             )}
           </div>
 
-          {/* Baseline reset */}
+          {/* ── Baseline reset ─────────────────────────────────────────── */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Baseline Management
@@ -182,15 +270,90 @@ export function SettingsPanel({ onClose }: Props) {
                   onClick={() => handleReset(p)}
                   disabled={resetting !== null}
                   className={cn(
-                    'px-3 py-1.5 rounded text-xs transition-colors',
-                    'bg-muted hover:bg-muted/60',
+                    'px-3 py-1.5 text-xs transition-colors bg-muted hover:bg-muted/60',
                     resetting === p && 'opacity-50 cursor-not-allowed',
                   )}
+                  style={{ borderRadius: 'var(--radius)' }}
                 >
                   {resetting === p ? 'Resetting…' : `Reset ${p === 'all' ? 'All' : p}`}
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* ── Developer Mode ────────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <div className="flex items-center justify-between mt-2">
+              <h3
+                className="text-xs font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--color-badge-warn-text)' }}
+              >
+                Developer Mode
+              </h3>
+              {/* Toggle */}
+              <button
+                onClick={() => toggleDevMode(!devMode)}
+                className="flex items-center gap-1.5 text-xs transition-colors"
+                style={{ color: devMode ? 'var(--color-badge-warn-text)' : undefined }}
+              >
+                <span
+                  className="inline-flex items-center h-4 w-7 border transition-colors"
+                  style={{
+                    backgroundColor: devMode ? 'var(--color-badge-warn-bg)' : 'hsl(var(--muted))',
+                    borderColor: devMode ? 'var(--color-badge-warn-bdr)' : 'hsl(var(--border))',
+                    borderRadius: 'var(--radius)',
+                  }}
+                >
+                  <span
+                    className="h-3 w-3 border transition-all"
+                    style={{
+                      transform: devMode ? 'translateX(14px)' : 'translateX(1px)',
+                      backgroundColor: devMode ? 'var(--color-badge-warn-text)' : 'hsl(var(--muted-foreground))',
+                      borderColor: 'transparent',
+                      borderRadius: 'calc(var(--radius) / 2)',
+                    }}
+                  />
+                </span>
+                {devMode ? 'On' : 'Off'}
+              </button>
+            </div>
+
+            {devMode && (
+              <div className="flex flex-col gap-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Runs <span className="font-mono">fast_baseline.sh</span> on all 5 node
+                  containers simultaneously — generates HTTP, DNS, and SSH traffic to
+                  fill the OIF baselines in ~1–2 minutes instead of organic traffic time.
+                  Requires all node containers to be running.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleFastBaseline}
+                    disabled={fbState === 'running'}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-medium transition-colors border',
+                      fbState === 'running' && 'opacity-50 cursor-not-allowed',
+                    )}
+                    style={{
+                      backgroundColor: 'var(--color-badge-warn-bg)',
+                      borderColor:     'var(--color-badge-warn-bdr)',
+                      color:           'var(--color-badge-warn-text)',
+                      borderRadius:    'var(--radius)',
+                    }}
+                  >
+                    {fbState === 'running' ? 'Triggering…' : 'Trigger Fast Baseline'}
+                  </button>
+                  {fbMsg && (
+                    <span
+                      className="text-xs"
+                      style={{ color: fbState === 'err' ? 'var(--color-badge-danger-text)' : 'var(--color-count-trained)' }}
+                    >
+                      {fbMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </section>
 
         </div>
@@ -203,18 +366,21 @@ export function SettingsPanel({ onClose }: Props) {
 // ── sub-components ────────────────────────────────────────────────────────────
 
 function ThresholdSlider({
-  label, value, min, max, color, onChange,
+  label, value, min, max, varName, onChange,
 }: {
   label: string
   value: number
   min: number
   max: number
-  color: string
+  varName: string
   onChange: (v: number) => void
 }) {
   return (
     <div className="flex items-center gap-3">
-      <span className={cn('text-[10px] font-semibold w-14 text-right', color.replace('bg-', 'text-'))}>
+      <span
+        className="text-[10px] font-semibold w-14 text-right"
+        style={{ color: `var(${varName})` }}
+      >
         {label}
       </span>
       <input
@@ -222,7 +388,8 @@ function ThresholdSlider({
         min={min} max={max} step={0.01}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="flex-1 accent-blue-500"
+        className="flex-1 accent-current"
+        style={{ accentColor: `var(${varName})` }}
       />
       <span className="w-10 text-xs tabular-nums text-right">{value.toFixed(2)}</span>
     </div>
@@ -245,9 +412,10 @@ function BaselineInput({
         value={value}
         onChange={(e) => onChange(Math.max(64, parseInt(e.target.value) || 64))}
         className={cn(
-          'rounded bg-muted px-2 py-1 text-xs tabular-nums',
+          'bg-muted px-2 py-1 text-xs tabular-nums',
           'focus:outline-none focus:ring-1 focus:ring-border w-full',
         )}
+        style={{ borderRadius: 'var(--radius)' }}
       />
     </label>
   )

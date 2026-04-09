@@ -162,6 +162,8 @@ services:
       - ./inference/config.json:/app/config.json
       # SQLite flow DB persists across container restarts on the host.
       - ./data:/app/data
+      # Docker socket — used by /dev/fast-baseline to exec scripts on node containers.
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8765:8765"
     networks:

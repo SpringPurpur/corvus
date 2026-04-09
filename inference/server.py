@@ -166,6 +166,58 @@ async def delete_flows() -> dict:
     return {"deleted": n}
 
 
+_BASELINE_NODES = [
+    "ids_node_1", "ids_node_2", "ids_node_3",
+    "ids_node_4", "ids_node_5",
+]
+
+@app.post("/dev/fast-baseline")
+async def dev_fast_baseline() -> dict:
+    """Trigger fast_baseline.sh on all victim node containers in parallel.
+
+    Requires /var/run/docker.sock to be mounted into this container.
+    Each node runs the script in the background (detach=True) so this
+    endpoint returns immediately without waiting for traffic to complete.
+    """
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        raise HTTPException(500, "docker SDK not installed — rebuild the inference image")
+
+    def _exec_all() -> dict:
+        triggered = []
+        skipped = []
+        try:
+            client = docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")
+        except Exception as exc:
+            raise RuntimeError(f"Cannot connect to Docker socket: {exc}") from exc
+
+        try:
+            for node in _BASELINE_NODES:
+                try:
+                    container = client.containers.get(node)
+                    container.exec_run(
+                        ["bash", "/scripts/fast_baseline.sh"],
+                        detach=True,
+                    )
+                    triggered.append(node)
+                    log.info("[dev] fast_baseline.sh started on %s", node)
+                except docker_sdk.errors.NotFound:
+                    log.warning("[dev] Container %s not found — skipping", node)
+                    skipped.append(node)
+        finally:
+            client.close()
+
+        return {"triggered": triggered, "skipped": skipped}
+
+    try:
+        result = await run_in_threadpool(_exec_all)
+        return {"ok": True, **result}
+    except Exception as exc:
+        log.error("[dev] fast-baseline failed: %s", exc)
+        raise HTTPException(500, str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await handle_websocket(ws, _alert_queue, _llm_handler)
