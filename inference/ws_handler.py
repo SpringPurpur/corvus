@@ -62,19 +62,46 @@ class ConnectionManager:
 # Module-level singleton — imported by server.py and main.py
 manager = ConnectionManager()
 
+# Capture-engine liveness flag — set by main.py when the first flow arrives
+# from the Unix socket.  Read here to send a correct initial status snapshot
+# to newly connected dashboard clients.
+_capture_up: bool = False
+
+
+def notify_capture_up() -> None:
+    """Called once by main.py when the first flow is dequeued from the C engine."""
+    global _capture_up
+    _capture_up = True
+
 
 async def handle_websocket(
     ws: WebSocket,
-    alert_broadcaster: asyncio.Queue,
-    llm_handler: Any,         # llm.py functions, passed in to avoid circular import
+    alert_broadcaster: asyncio.Queue,   # unused — alerts broadcast globally via manager
+    llm_handler: Any,                   # llm.py functions, passed in to avoid circular import
 ) -> None:
     """Handle a single WebSocket connection lifecycle.
 
-    Runs two concurrent tasks:
-      - pump_alerts: drains alert_broadcaster and sends to this client
-      - receive_loop: reads upstream frames (feedback, llm_request)
+    Immediately sends the current system state (capture up, models ready) so
+    dashboard indicators reflect reality on connect rather than waiting for the
+    next status event.  Afterwards runs the receive loop for upstream frames
+    (feedback, llm_request).  Outbound alerts are delivered by the global
+    _broadcast_worker in main.py via manager.broadcast(), not per-connection.
     """
     await manager.connect(ws)
+
+    # Greet the new client with the current system state so dots light up
+    # immediately on connect / page-refresh instead of waiting for the next flow.
+    try:
+        from online_detector import tcp_detector   # lazy — avoids circular import at module level
+        await manager.send(ws, {
+            "type":       "status",
+            "capture":    _capture_up,
+            "models":     tcp_detector.is_ready,
+            "baselining": _capture_up and not tcp_detector.is_ready,
+        })
+    except Exception:
+        pass   # best-effort; never let an import failure drop the connection
+
     try:
         await asyncio.gather(
             _receive_loop(ws, llm_handler),

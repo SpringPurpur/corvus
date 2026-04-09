@@ -591,10 +591,10 @@ class MultiWindowOIF:
     def _cooldown_active(self) -> bool:
         return self._cooldown > 0
 
-    def process(self, raw: np.ndarray) -> tuple[WindowScores, list[dict]] | None:
+    def process(self, raw: np.ndarray) -> tuple[WindowScores, list[dict], float] | None:
         """Score a flow. Returns None during baselining.
 
-        After baselining: returns (WindowScores, top-3 attribution list).
+        After baselining: returns (WindowScores, top-3 attribution list, oor_score).
         Flows scoring below TRAIN_THRESHOLD are trained on; high-scoring
         flows are withheld to prevent poisoning.
         """

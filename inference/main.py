@@ -18,11 +18,12 @@ import time
 import uvicorn
 
 import llm
+import online_detector as _od
 import storage
 from classifier import Classifier
 from server import app, configure
 from socket_reader import run_socket_server
-from ws_handler import manager
+from ws_handler import manager, notify_capture_up
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,15 +38,32 @@ def _inference_worker(
     loop: asyncio.AbstractEventLoop,
     classifier: Classifier,
 ) -> None:
-    """Drain flow_queue, run inference, push alerts onto the asyncio alert_queue."""
-    from online_detector import tcp_detector, udp_detector
+    """Drain flow_queue, run inference, push alerts onto the asyncio alert_queue.
+
+    Accesses tcp_detector / udp_detector through the _od module reference so
+    that post-reset reassignments in online_detector are always visible — a
+    local 'from online_detector import tcp_detector' would capture the old
+    object and produce stale stats after a baseline reset.
+    """
     _stats_counter = 0
+    _capture_signalled = False   # True once the first flow is dequeued
+    _detector_was_ready = False  # tracks tcp_detector.is_ready transitions
 
     while True:
         try:
             flow = flow_queue.get(timeout=1.0)
         except queue.Empty:
             continue
+
+        # ── Signal capture-engine liveness on the first flow ──────────────────
+        if not _capture_signalled:
+            _capture_signalled = True
+            notify_capture_up()
+            loop.call_soon_threadsafe(
+                alert_queue.put_nowait,
+                {"type": "status", "capture": True,
+                 "models": _od.tcp_detector.is_ready},
+            )
 
         try:
             alert = classifier.predict(flow)
@@ -62,11 +80,23 @@ def _inference_worker(
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
                 {"type": "status",
+                 "capture": True,
                  "baselining": True,
                  "progress": alert.get("progress", 0.0),
                  "protocol": alert.get("protocol", "")},
             )
             continue
+
+        # ── Detect tcp_detector readiness transition ───────────────────────────
+        # Covers both initial baseline completion and re-baselining after reset.
+        now_ready = _od.tcp_detector.is_ready
+        if now_ready and not _detector_was_ready:
+            loop.call_soon_threadsafe(
+                alert_queue.put_nowait,
+                {"type": "status", "capture": True,
+                 "models": True, "baselining": False},
+            )
+        _detector_was_ready = now_ready
 
         log.info("Alert: proto=%s label=%s src=%s:%s dst=%s:%s",
                  alert["proto"], alert["verdict"]["label"],
@@ -82,8 +112,8 @@ def _inference_worker(
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
                 {"type": "stats",
-                 "tcp": tcp_detector.metrics() | {"ready": tcp_detector.is_ready},
-                 "udp": udp_detector.metrics() | {"ready": udp_detector.is_ready}},
+                 "tcp": _od.tcp_detector.metrics() | {"ready": _od.tcp_detector.is_ready},
+                 "udp": _od.udp_detector.metrics() | {"ready": _od.udp_detector.is_ready}},
             )
 
 

@@ -58,8 +58,10 @@ export function useAlerts(): UseAlertsReturn {
           ...s,
           tcp,
           udp,
-          // If we have history, detection was already active — skip baselining banner
+          // If we have stored flows, detection was already active — skip baselining
+          // banner and mark models as loaded so the status dot lights up correctly.
           baselining: false,
+          modelsLoaded: true,
         }))
       })
       .catch(() => {
@@ -71,11 +73,12 @@ export function useAlerts(): UseAlertsReturn {
     if (msg.type === 'status') {
       setState((s) => ({
         ...s,
-        captureUp: msg.capture ?? s.captureUp,
-        modelsLoaded: msg.models ?? s.modelsLoaded,
-        // Once cleared by a real alert, don't re-enable — TCP and UDP
-      // baseline independently; the slower one must not re-show the banner.
-      baselining: s.baselining ? (msg.baselining ?? false) : false,
+        captureUp:       msg.capture   ?? s.captureUp,
+        modelsLoaded:    msg.models    ?? s.modelsLoaded,
+        // Only clear the baselining banner if the server explicitly sends
+        // baselining:false. A status message that omits the field (e.g. the
+        // capture-up ping) must not prematurely hide the progress bar.
+        baselining:      s.baselining ? (msg.baselining ?? true) : false,
         baselineProgress: msg.progress ?? s.baselineProgress,
       }))
       return
