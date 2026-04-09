@@ -808,7 +808,8 @@ def reset_detector(protocol: str) -> None:
         if pkl.exists():
             pkl.unlink()
         tcp_detector = MultiWindowOIF(
-            TCP_IF_FEATURE_NAMES, protocol="TCP", save_path=pkl,
+            TCP_IF_FEATURE_NAMES, protocol="TCP",
+            baseline_flows=cfg.baseline_tcp, save_path=pkl,
         )
         log.info("[TCP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_tcp)
 
