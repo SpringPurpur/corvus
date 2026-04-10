@@ -55,9 +55,11 @@ def init_db() -> None:
             score_oor    REAL,
             attribution  TEXT,
             shap         TEXT,
-            flow_ts_ns   INTEGER,
-            t_socket_ns  INTEGER,
-            t_infer_ns   INTEGER
+            flow_ts_ns    INTEGER,
+            t_socket_ns   INTEGER,
+            t_infer_ns    INTEGER,
+            t_dequeue_ns  INTEGER,
+            t_scored_ns   INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_ts     ON flows(ts);
         CREATE INDEX IF NOT EXISTS idx_src_ip ON flows(src_ip);
@@ -87,6 +89,10 @@ def init_db() -> None:
         _conn.execute("ALTER TABLE flows ADD COLUMN t_socket_ns INTEGER")
         _conn.execute("ALTER TABLE flows ADD COLUMN t_infer_ns INTEGER")
         log.info("Migrated flows table: added timing columns")
+    if "t_dequeue_ns" not in cols:
+        _conn.execute("ALTER TABLE flows ADD COLUMN t_dequeue_ns INTEGER")
+        _conn.execute("ALTER TABLE flows ADD COLUMN t_scored_ns  INTEGER")
+        log.info("Migrated flows table: added t_dequeue_ns / t_scored_ns columns")
     _conn.commit()
     log.info("SQLite DB ready at %s", DB_PATH)
 
@@ -111,8 +117,8 @@ def insert_flow(alert: dict) -> None:
                      label, severity, confidence,
                      score_fast, score_medium, score_slow, score_comp, score_oor,
                      attribution, shap,
-                     flow_ts_ns, t_socket_ns, t_infer_ns)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     alert["flow_id"], alert["ts"],
@@ -124,7 +130,8 @@ def insert_flow(alert: dict) -> None:
                     s.get("oor"),
                     json.dumps(alert.get("attribution", [])),
                     json.dumps(alert.get("shap", [])),
-                    t.get("flow_ts_ns"), t.get("t_socket_ns"), t.get("t_infer_ns"),
+                    t.get("flow_ts_ns"), t.get("t_socket_ns"),
+                    t.get("t_dequeue_ns"), t.get("t_scored_ns"),
                 ),
             )
             _conn.commit()
@@ -196,7 +203,7 @@ def query_flows(
                    label, severity, confidence,
                    score_fast, score_medium, score_slow, score_comp, score_oor,
                    attribution, shap,
-                   flow_ts_ns, t_socket_ns, t_infer_ns
+                   flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns
             FROM flows
             {where}
             ORDER BY ts DESC
@@ -276,7 +283,7 @@ def _row_to_alert(row: tuple) -> dict:
      label, severity, confidence,
      fast, medium, slow, comp, oor,
      attribution_json, shap_json,
-     flow_ts_ns, t_socket_ns, t_infer_ns) = row
+     flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns) = row
 
     return {
         "flow_id":     flow_id,
@@ -305,8 +312,9 @@ def _row_to_alert(row: tuple) -> dict:
         "score_comp":  comp,
         "attribution": json.loads(attribution_json or "[]"),
         "timing": {
-            "flow_ts_ns":  flow_ts_ns,
-            "t_socket_ns": t_socket_ns,
-            "t_infer_ns":  t_infer_ns,
+            "flow_ts_ns":   flow_ts_ns,
+            "t_socket_ns":  t_socket_ns,
+            "t_dequeue_ns": t_dequeue_ns,
+            "t_scored_ns":  t_scored_ns,
         },
     }

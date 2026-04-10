@@ -112,7 +112,7 @@ export function AlertDetail({ alert }: Props) {
       )}
 
       {/* Pipeline latency */}
-      {alert.timing?.t_browser_ms && (
+      {alert.timing?.t_socket_ns && (
         <section>
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Pipeline latency
@@ -124,22 +124,31 @@ export function AlertDetail({ alert }: Props) {
   )
 }
 
-function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
-  const { flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms } = timing
+function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: number } }) {
+  const { flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms, t_infer_ns } = timing
 
-  // Guard: any missing ns field (sent as 0 by server) makes that stage meaningless.
-  // Only render the section when all timestamps are present and non-zero.
-  if (!flow_ts_ns || !t_socket_ns || !t_dequeue_ns || !t_scored_ns || !t_ws_ns || !t_browser_ms) return null
+  if (!flow_ts_ns || !t_socket_ns) return null
 
   const ns2ms = (ns: number) => ns / 1_000_000
 
-  const stages: [string, number][] = [
-    ['IPC + decode',  ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
-    ['Queue wait',    ns2ms(t_dequeue_ns) - ns2ms(t_socket_ns)],
-    ['OIF scoring',   ns2ms(t_scored_ns)  - ns2ms(t_dequeue_ns)],
-    ['WS → browser',  t_browser_ms        - ns2ms(t_ws_ns)],
-  ]
-  const total = t_browser_ms - ns2ms(flow_ts_ns)
+  // Build stages from whatever timestamps are available.
+  // New containers emit t_dequeue_ns + t_scored_ns (split queue/OIF).
+  // Old containers emit t_infer_ns (combined queue+OIF).
+  const stages: [string, number][] = []
+  stages.push(['IPC + decode', ns2ms(t_socket_ns) - ns2ms(flow_ts_ns)])
+  if (t_dequeue_ns && t_scored_ns) {
+    stages.push(['Queue wait',  ns2ms(t_dequeue_ns) - ns2ms(t_socket_ns)])
+    stages.push(['OIF scoring', ns2ms(t_scored_ns)  - ns2ms(t_dequeue_ns)])
+  } else if (t_infer_ns) {
+    stages.push(['Queue + OIF', ns2ms(t_infer_ns) - ns2ms(t_socket_ns)])
+  }
+  const lastNs = t_scored_ns ?? t_infer_ns ?? t_socket_ns
+  if (t_ws_ns && t_browser_ms) {
+    stages.push(['WS → browser', t_browser_ms - ns2ms(t_ws_ns)])
+  }
+  const total = t_browser_ms
+    ? t_browser_ms - ns2ms(flow_ts_ns)
+    : ns2ms(lastNs) - ns2ms(flow_ts_ns)
   const maxStage = Math.max(...stages.map(([, v]) => v), 0.001)  // prevent /0
 
   return (

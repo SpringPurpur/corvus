@@ -18,6 +18,7 @@ export interface OifScores {
   medium: number
   slow: number
   composite: number
+  oor?: number
 }
 
 export interface AttributionEntry {
