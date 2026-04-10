@@ -196,7 +196,7 @@ class Classifier:
                 "progress": result["progress"],
             }
 
-        t_infer_ns = time.time_ns()   # OIF complete — stamp before dict construction
+        t_scored_ns = time.time_ns()   # OIF complete — post-scoring stamp
 
         proto = flow["protocol"]
         return {
@@ -217,10 +217,20 @@ class Classifier:
             "scores":      result["scores"],       # fast/medium/slow/composite
             "attribution": result["attribution"],  # top-3 OIF path-depth attribution
             # Pipeline latency timestamps (nanoseconds, CLOCK_REALTIME)
+            # flow_ts_ns  : last_pkt_ns  — when C engine completed the flow
+            # t_socket_ns : time after ctypes decode in socket_reader
+            # t_dequeue_ns: time when protocol worker dequeued the flow
+            # t_scored_ns : time after OIF scoring completes
+            #
+            # Derived latencies:
+            #   ipc_ms    = (t_socket_ns  - flow_ts_ns)  / 1e6  — IPC transfer + decode
+            #   queue_ms  = (t_dequeue_ns - t_socket_ns) / 1e6  — Python queue wait
+            #   oif_ms    = (t_scored_ns  - t_dequeue_ns)/ 1e6  — OIF scoring time
             "_timing": {
-                "flow_ts_ns":  flow.get("first_pkt_ns", 0),
-                "t_socket_ns": flow.get("t_socket_ns", 0),
-                "t_infer_ns":  t_infer_ns,
+                "flow_ts_ns":   flow.get("last_pkt_ns", 0),
+                "t_socket_ns":  flow.get("t_socket_ns", 0),
+                "t_dequeue_ns": flow.get("_t_dequeue_ns", 0),
+                "t_scored_ns":  t_scored_ns,
             },
         }
 

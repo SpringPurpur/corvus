@@ -28,9 +28,10 @@ export interface AttributionEntry {
 }
 
 export interface PipelineTiming {
-  flow_ts_ns:    number   // C engine: last packet timestamp (ns, CLOCK_REALTIME)
-  t_socket_ns:   number   // Python: after ctypes decode, before queue.put (ns)
-  t_infer_ns:    number   // Python: OIF complete (ns)
+  flow_ts_ns:    number   // C engine: last_pkt_ns — flow completion time (ns)
+  t_socket_ns:   number   // Python: after ctypes decode in socket_reader (ns)
+  t_dequeue_ns:  number   // Python: when protocol worker dequeued the flow (ns)
+  t_scored_ns:   number   // Python: after OIF scoring completes (ns)
   t_ws_ns:       number   // Python: before WebSocket broadcast (ns)
   t_browser_ms?: number   // Browser: Date.now() on frame receipt (ms)
 }

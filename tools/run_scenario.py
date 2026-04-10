@@ -514,13 +514,18 @@ def main() -> None:
         for f in top_flows
     ]
 
-    # Latency percentiles from flows that have timing data
-    ipc_vals  = [f["timing"]["t_socket_ns"] / 1e6 - f["timing"]["flow_ts_ns"] / 1e6
-                 for f in window_flows
-                 if f.get("timing") and f["timing"].get("t_socket_ns") and f["timing"].get("flow_ts_ns")]
-    oif_vals  = [f["timing"]["t_infer_ns"]  / 1e6 - f["timing"]["t_socket_ns"] / 1e6
-                 for f in window_flows
-                 if f.get("timing") and f["timing"].get("t_infer_ns") and f["timing"].get("t_socket_ns")]
+    # Latency percentiles from flows that have timing data.
+    # All three segments require non-zero timestamps to be valid.
+    def _has(*keys):
+        return lambda f: (f.get("timing") and
+                          all(f["timing"].get(k, 0) > 0 for k in keys))
+
+    ipc_vals   = [(f["timing"]["t_socket_ns"]  - f["timing"]["flow_ts_ns"])  / 1e6
+                  for f in window_flows if _has("t_socket_ns",  "flow_ts_ns")(f)]
+    queue_vals = [(f["timing"]["t_dequeue_ns"] - f["timing"]["t_socket_ns"]) / 1e6
+                  for f in window_flows if _has("t_dequeue_ns", "t_socket_ns")(f)]
+    oif_vals   = [(f["timing"]["t_scored_ns"]  - f["timing"]["t_dequeue_ns"])/ 1e6
+                  for f in window_flows if _has("t_scored_ns",  "t_dequeue_ns")(f)]
 
     def _pcts(vals: list) -> dict:
         if not vals:
@@ -548,8 +553,9 @@ def main() -> None:
         "metrics":           metrics,
         "top_attack_flows":  top_flows_slim,
         "latency_ms": {
-            "ipc_decode": _pcts(ipc_vals),
-            "oif_queue":  _pcts(oif_vals),
+            "ipc_decode":  _pcts(ipc_vals),    # last_pkt_ns -> t_socket_ns
+            "queue_wait":  _pcts(queue_vals),  # t_socket_ns -> t_dequeue_ns (pure queue depth)
+            "oif_score":   _pcts(oif_vals),    # t_dequeue_ns -> t_scored_ns (Cython speedup)
         },
         "stats_before":      stats_before,
         "stats_after":       stats_after,

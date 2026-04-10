@@ -91,6 +91,10 @@ def _protocol_worker(
         except queue.Empty:
             continue
 
+        # Stamp dequeue time immediately — measures pure queue wait
+        # (time between socket_reader putting the flow and this worker picking it up).
+        flow["_t_dequeue_ns"] = time.time_ns()
+
         # ── Signal capture-engine liveness on the first flow (any protocol) ───
         if not _capture_event.is_set():
             _capture_event.set()

@@ -125,18 +125,18 @@ export function AlertDetail({ alert }: Props) {
 }
 
 function LatencyBreakdown({ timing }: { timing: PipelineTiming }) {
-  const { flow_ts_ns, t_socket_ns, t_infer_ns, t_ws_ns, t_browser_ms } = timing
+  const { flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms } = timing
 
   // Guard: any missing ns field (sent as 0 by server) makes that stage meaningless.
-  // Only render the section when all four timestamps are present and non-zero.
-  if (!flow_ts_ns || !t_socket_ns || !t_infer_ns || !t_ws_ns || !t_browser_ms) return null
+  // Only render the section when all timestamps are present and non-zero.
+  if (!flow_ts_ns || !t_socket_ns || !t_dequeue_ns || !t_scored_ns || !t_ws_ns || !t_browser_ms) return null
 
   const ns2ms = (ns: number) => ns / 1_000_000
 
   const stages: [string, number][] = [
     ['IPC + decode',  ns2ms(t_socket_ns)  - ns2ms(flow_ts_ns)],
-    ['Queue wait',    ns2ms(t_infer_ns)   - ns2ms(t_socket_ns)],
-    ['OIF inference', ns2ms(t_ws_ns)      - ns2ms(t_infer_ns)],
+    ['Queue wait',    ns2ms(t_dequeue_ns) - ns2ms(t_socket_ns)],
+    ['OIF scoring',   ns2ms(t_scored_ns)  - ns2ms(t_dequeue_ns)],
     ['WS → browser',  t_browser_ms        - ns2ms(t_ws_ns)],
   ]
   const total = t_browser_ms - ns2ms(flow_ts_ns)
