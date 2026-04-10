@@ -320,6 +320,8 @@ def main() -> None:
     parser.add_argument("--no-baseline", action="store_true", help="Skip baselining step (model already warm)")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
     parser.add_argument("--threshold-critical", type=float, default=0.80)
+    parser.add_argument("--results-dir", default=None,
+                        help="Output directory for result JSON (default: scenarios/results/)")
     args = parser.parse_args()
 
     # -- Load scenario --
@@ -477,24 +479,82 @@ def main() -> None:
     )
 
     # -- Save results --
-    results_dir = Path(__file__).parent.parent / "scenarios" / "results"
+    if args.results_dir:
+        results_dir = Path(args.results_dir)
+    else:
+        results_dir = Path(__file__).parent.parent / "scenarios" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     ts_str   = datetime.fromtimestamp(t_attack_start).strftime("%Y%m%d_%H%M%S")
     stem     = scenario_path.stem
     out_path = results_dir / f"{stem}_{ts_str}.json"
 
+    # Enrich: top-5 attack flows by score (key fields only — not the full dict)
+    def _score(f: dict) -> float:
+        return f.get("score_comp") or (f.get("scores") or {}).get("composite") or 0.0
+
+    attack_window = [
+        f for f in window_flows
+        if _involves_attacker(f, attacker_ip)
+        and (t_attack_start + ts_offset) <= f.get("ts", 0) <= (t_attack_end + ts_offset)
+    ]
+    top_flows = sorted(attack_window, key=_score, reverse=True)[:5]
+    top_flows_slim = [
+        {
+            "flow_id":   f.get("flow_id"),
+            "ts":        f.get("ts"),
+            "src_ip":    f.get("src_ip"),
+            "src_port":  f.get("src_port"),
+            "dst_ip":    f.get("dst_ip"),
+            "dst_port":  f.get("dst_port"),
+            "proto":     f.get("proto"),
+            "score":     _score(f),
+            "verdict":   (f.get("verdict") or {}).get("label"),
+            "attribution": f.get("attribution", [])[:3],
+        }
+        for f in top_flows
+    ]
+
+    # Latency percentiles from flows that have timing data
+    ipc_vals  = [f["timing"]["t_socket_ns"] / 1e6 - f["timing"]["flow_ts_ns"] / 1e6
+                 for f in window_flows
+                 if f.get("timing") and f["timing"].get("t_socket_ns") and f["timing"].get("flow_ts_ns")]
+    oif_vals  = [f["timing"]["t_infer_ns"]  / 1e6 - f["timing"]["t_socket_ns"] / 1e6
+                 for f in window_flows
+                 if f.get("timing") and f["timing"].get("t_infer_ns") and f["timing"].get("t_socket_ns")]
+
+    def _pcts(vals: list) -> dict:
+        if not vals:
+            return {}
+        arr = sorted(vals)
+        n   = len(arr)
+        return {
+            "mean":  sum(arr) / n,
+            "p50":   arr[n // 2],
+            "p95":   arr[min(int(n * 0.95), n - 1)],
+            "p99":   arr[min(int(n * 0.99), n - 1)],
+            "count": n,
+        }
+
     result = {
-        "scenario":       scenario["name"],
-        "scenario_file":  str(scenario_path),
-        "run_at":         t_attack_start,
-        "attacker_ip":    attacker_ip,
-        "phases":         all_phases,
-        "window_flows":   len(window_flows),
-        "metrics":        metrics,
-        "stats_before":   stats_before,
-        "stats_after":    stats_after,
-        "thresholds":     {"high": args.threshold_high, "critical": args.threshold_critical},
-        "output_path":    str(out_path),
+        "type":              "scenario",
+        "scenario":          scenario["name"],
+        "scenario_file":     str(scenario_path),
+        "run_at":            t_attack_start,
+        "run_at_human":      datetime.fromtimestamp(t_attack_start).strftime("%Y-%m-%d %H:%M:%S"),
+        "attacker_ip":       attacker_ip,
+        "ts_offset_s":       ts_offset,
+        "phases":            all_phases,
+        "window_flows":      len(window_flows),
+        "metrics":           metrics,
+        "top_attack_flows":  top_flows_slim,
+        "latency_ms": {
+            "ipc_decode": _pcts(ipc_vals),
+            "oif_queue":  _pcts(oif_vals),
+        },
+        "stats_before":      stats_before,
+        "stats_after":       stats_after,
+        "thresholds":        {"high": args.threshold_high, "critical": args.threshold_critical},
+        "output_path":       str(out_path),
     }
 
     out_path.write_text(json.dumps(result, indent=2))

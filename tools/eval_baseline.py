@@ -319,6 +319,8 @@ def main() -> dict:
                         help="Skip OIF reset - evaluate model in its current state")
     parser.add_argument("--threshold-high",     type=float, default=0.60)
     parser.add_argument("--threshold-critical", type=float, default=0.80)
+    parser.add_argument("--results-dir", default=None,
+                        help="Output directory for result JSON (default: scenarios/results/)")
     args = parser.parse_args()
 
     run_at = time.time()
@@ -355,7 +357,10 @@ def main() -> dict:
 
     metrics = compute_baseline_metrics(flows, args.threshold_high, args.threshold_critical)
 
-    results_dir = Path(__file__).parent.parent / "scenarios" / "results"
+    if args.results_dir:
+        results_dir = Path(args.results_dir)
+    else:
+        results_dir = Path(__file__).parent.parent / "scenarios" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     ts_str   = datetime.fromtimestamp(run_at).strftime("%Y%m%d_%H%M%S")
     out_path = results_dir / f"baseline_{ts_str}.json"
@@ -363,8 +368,10 @@ def main() -> dict:
     result = {
         "type":               "baseline",
         "run_at":             run_at,
+        "run_at_human":       datetime.fromtimestamp(run_at).strftime("%Y-%m-%d %H:%M:%S"),
         "duration_min":       args.duration,
         "obs_start":          obs_start,
+        "obs_start_human":    datetime.fromtimestamp(obs_start).strftime("%Y-%m-%d %H:%M:%S"),
         "thresholds":         {"high": args.threshold_high, "critical": args.threshold_critical},
         "metrics":            metrics,
         "output_path":        str(out_path),

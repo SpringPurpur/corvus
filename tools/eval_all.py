@@ -103,13 +103,14 @@ def reset(api: str) -> None:
 
 # -- Run a single scenario via subprocess --
 
-def run_scenario(yml_path: Path, api: str) -> Path | None:
+def run_scenario(yml_path: Path, api: str, run_dir: Path) -> Path | None:
     """Run run_scenario.py for yml_path. Returns the result JSON path, or None on failure."""
     cmd = [
         sys.executable,
         str(Path(__file__).parent / "run_scenario.py"),
         str(yml_path),
         "--api", api,
+        "--results-dir", str(run_dir),
     ]
     print(f"\n  Running: {' '.join(cmd)}")
     t_start = time.time()
@@ -121,10 +122,8 @@ def run_scenario(yml_path: Path, api: str) -> Path | None:
         print(f"  [scenario] FAILED (exit {proc.returncode}) after {elapsed:.0f}s")
         return None
 
-    # Find the newest result file matching this scenario stem.
-    stem        = yml_path.stem
-    results_dir = Path(__file__).parent.parent / "scenarios" / "results"
-    candidates  = sorted(results_dir.glob(f"{stem}_*.json"), key=lambda p: p.stat().st_mtime)
+    stem       = yml_path.stem
+    candidates = sorted(run_dir.glob(f"{stem}_*.json"), key=lambda p: p.stat().st_mtime)
     if not candidates:
         print(f"  [scenario] WARNING: no result file found for {stem}")
         return None
@@ -242,7 +241,17 @@ def main() -> None:
     print(f"  API        : {args.api}")
     print(SEP)
 
-    run_at = time.time()
+    run_at  = time.time()
+    ts_str  = datetime.fromtimestamp(run_at).strftime("%Y%m%d_%H%M%S")
+
+    # All output for this eval_all run lives in a single dated subdirectory.
+    # Individual scenario JSONs and the summary all go there so runs are
+    # self-contained and easy to compare: scenarios/results/20260410_143022/
+    base_results = root / "scenarios" / "results"
+    run_dir      = base_results / ts_str
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"  Run dir    : {run_dir}")
 
     # -- Optional baseline quality check --
     baseline_result: dict | None = None
@@ -253,13 +262,12 @@ def main() -> None:
             str(Path(__file__).parent / "eval_baseline.py"),
             "--api", args.api,
             "--duration", str(args.baseline_duration),
+            "--results-dir", str(run_dir),
         ]
         subprocess.run(baseline_cmd, capture_output=False)
 
-        # Find the newest baseline result
-        results_dir = root / "scenarios" / "results"
-        candidates  = sorted(results_dir.glob("baseline_*.json"),
-                              key=lambda p: p.stat().st_mtime)
+        candidates = sorted(run_dir.glob("baseline_*.json"),
+                            key=lambda p: p.stat().st_mtime)
         if candidates:
             baseline_result = json.loads(candidates[-1].read_text())
 
@@ -274,14 +282,13 @@ def main() -> None:
         print("\n[eval_all] Resetting OIF state...")
         reset(args.api)
 
-        result_path = run_scenario(yml_path, args.api)
+        result_path = run_scenario(yml_path, args.api, run_dir)
 
         if result_path and result_path.exists():
             result = json.loads(result_path.read_text())
             scenario_results.append(result)
             print(f"\n[eval_all] Result saved: {result_path.name}")
         else:
-            # Record a failure entry so the table shows something
             scenario_results.append({
                 "scenario":      yml_path.stem,
                 "scenario_file": str(yml_path),
@@ -292,21 +299,21 @@ def main() -> None:
     # -- Summary --
     print_comparison(baseline_result, scenario_results)
 
-    # Save summary
-    results_dir = root / "scenarios" / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    ts_str      = datetime.fromtimestamp(run_at).strftime("%Y%m%d_%H%M%S")
-    out_path    = results_dir / f"eval_all_{ts_str}.json"
+    out_path = run_dir / f"eval_all_{ts_str}.json"
     summary = {
-        "type":             "eval_all",
-        "run_at":           run_at,
-        "api":              args.api,
-        "baseline":         baseline_result,
-        "scenarios":        scenario_results,
-        "output_path":      str(out_path),
+        "type":           "eval_all",
+        "run_at":         run_at,
+        "run_at_human":   datetime.fromtimestamp(run_at).strftime("%Y-%m-%d %H:%M:%S"),
+        "run_dir":        str(run_dir),
+        "api":            args.api,
+        "n_scenarios":    len(scenario_results),
+        "baseline":       baseline_result,
+        "scenarios":      scenario_results,
+        "output_path":    str(out_path),
     }
     out_path.write_text(json.dumps(summary, indent=2))
-    print(f"\n  Full summary saved to: {out_path}\n")
+    print(f"\n  Full summary saved to: {out_path}")
+    print(f"  Run directory        : {run_dir}\n")
 
 
 if __name__ == "__main__":
