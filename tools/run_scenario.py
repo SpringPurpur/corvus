@@ -186,20 +186,24 @@ def compute_metrics(
     threshold_high: float = 0.60,
     threshold_critical: float = 0.80,
 ) -> dict:
-    attack_flows  = [f for f in all_flows
-                     if _involves_attacker(f, attacker_ip)
-                     and t_attack_start <= f["ts"] <= t_attack_end]
-    benign_flows  = [f for f in all_flows
-                     if not (_involves_attacker(f, attacker_ip)
-                             and t_attack_start <= f["ts"] <= t_attack_end)]
+    # attack_flows: all attacker-IP flows in the query window.
+    # The outer query (ts_from=window_start, ts_to=window_end) already bounds the
+    # window. We intentionally do NOT further filter by [c_attack_start, c_attack_end]
+    # here because fast attacks (SYN flood ~1.2s, UDP flood ~0.6s) have windows
+    # narrower than the docker-exec overhead + first-packet latency, causing flows
+    # whose pcap timestamp lands just outside the narrow window to be missed entirely.
+    attack_flows  = [f for f in all_flows if _involves_attacker(f, attacker_ip)]
+    benign_flows  = [f for f in all_flows if not _involves_attacker(f, attacker_ip)]
     post_flows    = [f for f in all_flows if f["ts"] > t_attack_end]
 
-    # TTD - first CRITICAL alert from attacker during attack window
+    # TTD — first CRITICAL alert from attacker. Floor negative TTD to 0 so
+    # attacks whose first packet arrives fractionally before the start stamp
+    # (clock drift) don't produce a confusing negative time-to-detect.
     ttd_s         = None
     ttd_flows_idx = None
     for i, f in enumerate(sorted(attack_flows, key=lambda x: x["ts"])):
         if _score(f) >= threshold_critical:
-            ttd_s         = f["ts"] - t_attack_start
+            ttd_s         = max(f["ts"] - t_attack_start, 0.0)
             ttd_flows_idx = i + 1
             break
 
@@ -465,6 +469,20 @@ def main() -> None:
 
         raw = _get_flows(args.api, ts_from=window_start, ts_to=window_end)
         window_flows = raw
+
+        # Diagnostic: show attacker flow count and src_ip distribution in window
+        attacker_in_window = [f for f in window_flows if _involves_attacker(f, attacker_ip)]
+        if attacker_in_window:
+            print(f"[report] Attacker flows in window: {len(attacker_in_window)}")
+        else:
+            # No attacker flows in window — check unconstrained DB for attacker flows
+            attacker_all = [f for f in db_all if _involves_attacker(f, attacker_ip)]
+            print(f"[report] WARNING: 0 attacker flows in window. "
+                  f"Attacker flows in full DB: {len(attacker_all)}")
+            if attacker_all:
+                ts_vals = [f["ts"] for f in attacker_all]
+                print(f"[report]   attacker ts range: [{min(ts_vals):.3f}, {max(ts_vals):.3f}]  "
+                      f"(window: [{window_start:.3f}, {window_end:.3f}])")
     except Exception as e:
         print(f"[report] WARNING: could not query flows: {e}")
         window_flows = []
@@ -495,7 +513,6 @@ def main() -> None:
     attack_window = [
         f for f in window_flows
         if _involves_attacker(f, attacker_ip)
-        and (t_attack_start + ts_offset) <= f.get("ts", 0) <= (t_attack_end + ts_offset)
     ]
     top_flows = sorted(attack_window, key=_score, reverse=True)[:5]
     top_flows_slim = [
