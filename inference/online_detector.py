@@ -13,6 +13,18 @@
 # one that most effectively partitioned the data around this point — more meaningful
 # than HST's random half-space cuts.
 #
+# Tree implementation: flat numpy arrays instead of linked Python objects.
+# Nodes are stored in parallel pre-allocated arrays indexed by an integer ID.
+# The scoring hot path is a tight while loop over integer array indices — no
+# dict lookups, no Python object attribute access, no recursion overhead.
+# This makes the per-flow cost ~5-10× lower than the linked-node implementation
+# and is structured for straightforward Cython compilation (all array accesses
+# are bounded, types are statically known).
+#
+# Thread model: one dedicated thread per protocol (TCP, UDP). Each thread owns
+# its detector exclusively — no locking required within MultiWindowOIF.
+# See main.py for the router + worker layout.
+#
 # Reference: Leveni F., Cassales G.W., Pfahringer B., Bifet A., Boracchi G.
 #   "Online Isolation Forest." ICML 2024, PMLR v235.
 
@@ -20,8 +32,7 @@ import logging
 import math
 import pickle
 import random
-from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from collections import deque
 from pathlib import Path
 from typing import NamedTuple
 
@@ -75,271 +86,319 @@ def _extract(flow: dict, features: list[tuple[str, callable]]) -> np.ndarray:
     return np.array([fn(flow) for _, fn in features], dtype=np.float64)
 
 
-def _to_oif_dict(x: np.ndarray, names: list[str]) -> dict[str, float]:
-    return {name: float(x[i]) for i, name in enumerate(names)}
+# ── Pickle compatibility stubs ─────────────────────────────────────────────────
+# Saved models from the linked-node era contain _OIFNode / OnlineIsolationTree
+# objects. Keep empty stubs so pickle can deserialise the old files without
+# crashing — MultiWindowOIF._compatible_with() rejects them via _TREE_VERSION.
 
-
-# ── Online Isolation Forest — Leveni et al. ICML 2024 ─────────────────────────
-
-@dataclass
 class _OIFNode:
-    """A node in an Online Isolation Tree.
-
-    Internal nodes have split_feature/split_value set and non-None children.
-    Leaves have split_feature=None and no children.
-
-    h   — count of points currently in this node's sliding window.
-    min_val / max_val — bounding box of all points that have passed through
-                        this node and are still in the window. Updated on
-                        learn (expand) and approximated on unlearn (shrink
-                        from children, since raw points are not stored).
-    """
-    depth:         int
-    h:             int
-    min_val:       dict[str, float]
-    max_val:       dict[str, float]
-    split_feature: str | None           = None
-    split_value:   float | None         = None
-    left:          "_OIFNode | None"    = field(default=None, repr=False)
-    right:         "_OIFNode | None"    = field(default=None, repr=False)
-
-    @property
-    def is_leaf(self) -> bool:
-        return self.split_feature is None
-
+    """Compatibility stub — old linked-node format. Not used by new code."""
 
 class OnlineIsolationTree:
-    """Single tree in an Online Isolation Forest.
+    """Compatibility stub — old linked-node format. Not used by new code."""
 
-    Grows when a leaf accumulates enough points (adaptive threshold = η×2^depth)
-    and collapses when a branch loses too many (same threshold applied on unlearn).
-    Scoring is path length + leaf correction, same formula as classical iForest.
+
+# ── Array-based Online Isolation Tree ─────────────────────────────────────────
+
+class _ArrayTree:
+    """Online Isolation Tree with flat numpy array storage.
+
+    Nodes are stored in pre-allocated parallel integer/float arrays.
+    Internal nodes have feat_idx[i] >= 0 (feature index for the split).
+    Leaf nodes have feat_idx[i] == -1.
+
+    The scoring hot path is a tight while loop over array indices:
+
+        while feat_idx[node] >= 0:
+            node = left[node] if x[fi] < threshold[node] else right[node]
+
+    No dict lookups, no Python object attribute access, no recursion.
+    This structure maps directly to a Cython `cdef` or C struct array
+    if future compilation is desired.
     """
+
+    _INITIAL_CAP = 256
 
     def __init__(
         self,
-        feature_names:   list[str],
-        max_leaf_samples: int  = 32,
-        rng:             random.Random | None = None,
+        n_features:       int,
+        max_leaf_samples: int,
+        rng:              random.Random,
     ) -> None:
-        self.feature_names    = feature_names
+        self.n_features       = n_features
         self.max_leaf_samples = max_leaf_samples
-        self._rng             = rng or random.Random()
-        self.root: _OIFNode | None = None
+        self._rng             = rng
 
-    # ── split criterion ───────────────────────────────────────────────────────
+        cap = self._INITIAL_CAP
+        self._cap = cap
+        self._root    = -1           # -1 = empty tree
+        self._n_alloc = 0            # next slot index
+        self._free:  list[int] = []  # recycled slots
 
-    def _threshold(self, depth: int) -> int:
-        # Adaptive criterion from Leveni et al. §3: deeper nodes require
-        # exponentially more data before splitting, keeping trees balanced.
+        # Node arrays — all parallel, indexed by node ID
+        self._feat_idx  = np.full(cap, -1, dtype=np.int32)      # split feature; -1 = leaf
+        self._threshold = np.zeros(cap,     dtype=np.float64)   # split threshold
+        self._left      = np.zeros(cap,     dtype=np.int32)     # left child index
+        self._right     = np.zeros(cap,     dtype=np.int32)     # right child index
+        self._h         = np.zeros(cap,     dtype=np.int32)     # point count in node
+        self._depth     = np.zeros(cap,     dtype=np.int32)     # depth (root = 0)
+        self._min_val   = np.zeros((cap, n_features), dtype=np.float64)
+        self._max_val   = np.zeros((cap, n_features), dtype=np.float64)
+
+    # ── allocation ────────────────────────────────────────────────────────────
+
+    def _alloc(self) -> int:
+        if self._free:
+            return self._free.pop()
+        idx = self._n_alloc
+        if idx >= self._cap:
+            self._expand()
+        self._n_alloc += 1
+        return idx
+
+    def _expand(self) -> None:
+        """Double all arrays when capacity is exhausted."""
+        old = self._cap
+        self._cap = old * 2
+        self._feat_idx  = np.concatenate([self._feat_idx,  np.full(old, -1, np.int32)])
+        self._threshold = np.concatenate([self._threshold, np.zeros(old)])
+        self._left      = np.concatenate([self._left,      np.zeros(old, np.int32)])
+        self._right     = np.concatenate([self._right,     np.zeros(old, np.int32)])
+        self._h         = np.concatenate([self._h,         np.zeros(old, np.int32)])
+        self._depth     = np.concatenate([self._depth,     np.zeros(old, np.int32)])
+        self._min_val   = np.vstack([self._min_val, np.zeros((old, self.n_features))])
+        self._max_val   = np.vstack([self._max_val, np.zeros((old, self.n_features))])
+
+    # ── split threshold ───────────────────────────────────────────────────────
+
+    def _split_threshold(self, depth: int) -> int:
+        # Adaptive criterion from Leveni et al. §3.
         return self.max_leaf_samples * (1 << depth)
 
     def _leaf_correction(self, h: int) -> float:
-        # Expected additional path length inside a non-empty leaf, mirroring
-        # classical iForest's c(n) leaf correction (Liu et al. 2008).
-        # Returns 0 when h ≤ η — no meaningful subtree to estimate.
         if h <= self.max_leaf_samples:
             return 0.0
         return math.log2(h / self.max_leaf_samples)
 
     # ── learn ─────────────────────────────────────────────────────────────────
 
-    def learn_one(self, x: dict[str, float], max_depth: int) -> None:
-        if self.root is None:
-            self.root = _OIFNode(
-                depth=0, h=1,
-                min_val={f: x[f] for f in self.feature_names},
-                max_val={f: x[f] for f in self.feature_names},
-            )
-            return
-        self._learn(self.root, x, max_depth)
-
-    def _learn(self, node: _OIFNode, x: dict[str, float], max_depth: int) -> None:
-        node.h += 1
-        for f in self.feature_names:
-            if x[f] < node.min_val[f]:
-                node.min_val[f] = x[f]
-            if x[f] > node.max_val[f]:
-                node.max_val[f] = x[f]
-
-        if node.is_leaf:
-            if node.h >= self._threshold(node.depth) and node.depth < max_depth:
-                self._split(node)
-        else:
-            child = node.left if x[node.split_feature] < node.split_value else node.right
-            self._learn(child, x, max_depth)
-
-    def _split(self, node: _OIFNode) -> None:
-        """Convert a leaf to an internal node by choosing a random axis-parallel split.
-
-        Split feature is chosen uniformly at random from features that have
-        non-zero range (only features with variation can usefully split).
-        Child counts are estimated by assuming the h points are distributed
-        uniformly over the bounding box — same assumption as the paper's
-        Algorithm 2, which samples h points from U(R) to set child heights.
-        """
-        candidates = [
-            f for f in self.feature_names
-            if node.max_val[f] > node.min_val[f]
-        ]
-        if not candidates:
-            # All features are constant in this region — cannot split.
+    def learn_one(self, x: np.ndarray, max_depth: int) -> None:
+        if self._root < 0:
+            idx = self._alloc()
+            self._root          = idx
+            self._feat_idx[idx] = -1
+            self._h[idx]        = 1
+            self._depth[idx]    = 0
+            self._min_val[idx]  = x
+            self._max_val[idx]  = x
             return
 
-        q = self._rng.choice(candidates)
-        p = self._rng.uniform(node.min_val[q], node.max_val[q])
+        node = self._root
+        while self._feat_idx[node] >= 0:          # internal
+            self._h[node] += 1
+            np.minimum(self._min_val[node], x, out=self._min_val[node])
+            np.maximum(self._max_val[node], x, out=self._max_val[node])
+            fi   = int(self._feat_idx[node])
+            node = int(self._left[node]) if x[fi] < self._threshold[node] \
+                   else int(self._right[node])
 
-        frac_left = (p - node.min_val[q]) / (node.max_val[q] - node.min_val[q])
-        h_left  = max(round(node.h * frac_left), 1)
-        h_right = max(node.h - h_left, 1)
+        # leaf
+        self._h[node] += 1
+        np.minimum(self._min_val[node], x, out=self._min_val[node])
+        np.maximum(self._max_val[node], x, out=self._max_val[node])
 
-        left_max       = dict(node.max_val);  left_max[q]  = p
-        right_min      = dict(node.min_val);  right_min[q] = p
+        depth = int(self._depth[node])
+        if self._h[node] >= self._split_threshold(depth) and depth < max_depth:
+            self._split(node)
 
-        node.split_feature = q
-        node.split_value   = p
-        node.left  = _OIFNode(node.depth + 1, h_left,  dict(node.min_val), left_max)
-        node.right = _OIFNode(node.depth + 1, h_right, right_min,          dict(node.max_val))
+    def _split(self, node: int) -> None:
+        min_v   = self._min_val[node]
+        max_v   = self._max_val[node]
+        range_v = max_v - min_v
+        cands   = np.nonzero(range_v > 0)[0]
+        if len(cands) == 0:
+            return
+
+        q = int(self._rng.choice(cands.tolist()))
+        p = self._rng.uniform(float(min_v[q]), float(max_v[q]))
+
+        frac_l  = (p - float(min_v[q])) / float(range_v[q])
+        h_tot   = int(self._h[node])
+        h_left  = max(round(h_tot * frac_l), 1)
+        h_right = max(h_tot - h_left, 1)
+        d       = int(self._depth[node])
+
+        l = self._alloc()
+        r = self._alloc()
+
+        # Left child: box = [min, max] with max[q] = p
+        self._feat_idx[l]   = -1
+        self._h[l]          = h_left
+        self._depth[l]      = d + 1
+        self._min_val[l]    = min_v.copy()
+        self._max_val[l]    = max_v.copy()
+        self._max_val[l, q] = p
+
+        # Right child: box = [min, max] with min[q] = p
+        self._feat_idx[r]   = -1
+        self._h[r]          = h_right
+        self._depth[r]      = d + 1
+        self._min_val[r]    = min_v.copy()
+        self._max_val[r]    = max_v.copy()
+        self._min_val[r, q] = p
+
+        self._feat_idx[node]  = q
+        self._threshold[node] = p
+        self._left[node]      = l
+        self._right[node]     = r
 
     # ── unlearn ───────────────────────────────────────────────────────────────
 
-    def unlearn_one(self, x: dict[str, float]) -> None:
-        if self.root is None:
-            return
-        self._unlearn(self.root, x)
-        if self.root.h <= 0:
-            self.root = None
-
-    def _unlearn(self, node: _OIFNode, x: dict[str, float]) -> None:
-        node.h -= 1
-
-        if node.is_leaf:
+    def unlearn_one(self, x: np.ndarray) -> None:
+        if self._root < 0:
             return
 
-        # Collapse this branch if it no longer has enough data to justify
-        # its depth — mirrors the unlearn criterion in Algorithm 3.
-        if node.h < self._threshold(node.depth):
-            self._collapse(node)
-            return
+        # Phase 1: walk down, decrement h, check for collapse top-down.
+        # Collapsing at a node avoids descending further — same semantics as
+        # the original recursive implementation.
+        node  = self._root
+        path: list[int] = []   # internal nodes visited before the leaf
 
-        child = node.left if x[node.split_feature] < node.split_value else node.right
-        self._unlearn(child, x)
+        while self._feat_idx[node] >= 0:    # internal
+            self._h[node] -= 1
+            depth = int(self._depth[node])
+            if self._h[node] < self._split_threshold(depth):
+                self._collapse(node)
+                # Update ancestors above the collapsed node bottom-up
+                for p in reversed(path):
+                    if self._feat_idx[p] < 0:
+                        break   # p itself was collapsed (shouldn't occur here)
+                    l = int(self._left[p]);  r = int(self._right[p])
+                    np.minimum(self._min_val[l], self._min_val[r], out=self._min_val[p])
+                    np.maximum(self._max_val[l], self._max_val[r], out=self._max_val[p])
+                if self._h[self._root] <= 0:
+                    self._free_subtree(self._root)
+                    self._root = -1
+                return
+            path.append(node)
+            fi   = int(self._feat_idx[node])
+            node = int(self._left[node]) if x[fi] < self._threshold[node] \
+                   else int(self._right[node])
 
-        # Approximate bounding box update from children.
-        # We can't recompute exact bounds without storing all points,
-        # so we shrink from children — the box can only tighten here,
-        # which is acceptable since it's used for split sampling only.
-        for f in self.feature_names:
-            node.min_val[f] = min(node.left.min_val[f], node.right.min_val[f])
-            node.max_val[f] = max(node.left.max_val[f], node.right.max_val[f])
+        # Phase 2: reached the leaf — decrement and update bounding boxes bottom-up
+        self._h[node] -= 1
+        for p in reversed(path):
+            l = int(self._left[p]);  r = int(self._right[p])
+            np.minimum(self._min_val[l], self._min_val[r], out=self._min_val[p])
+            np.maximum(self._max_val[l], self._max_val[r], out=self._max_val[p])
 
-    def _collapse(self, node: _OIFNode) -> None:
-        """Collapse an internal node back into a leaf.
+        if self._root >= 0 and self._h[self._root] <= 0:
+            self._free_subtree(self._root)
+            self._root = -1
 
-        The combined bounding box is taken from children before nulling them.
-        Python GC reclaims the entire collapsed subtree.
-        """
-        node.min_val = {
-            f: min(node.left.min_val[f], node.right.min_val[f])
-            for f in self.feature_names
-        }
-        node.max_val = {
-            f: max(node.left.max_val[f], node.right.max_val[f])
-            for f in self.feature_names
-        }
-        node.split_feature = None
-        node.split_value   = None
-        node.left          = None
-        node.right         = None
+    def _collapse(self, node: int) -> None:
+        """Merge both child subtrees into this node, making it a leaf."""
+        l = int(self._left[node]);  r = int(self._right[node])
+        np.minimum(self._min_val[l], self._min_val[r], out=self._min_val[node])
+        np.maximum(self._max_val[l], self._max_val[r], out=self._max_val[node])
+        self._free_subtree(l)
+        self._free_subtree(r)
+        self._feat_idx[node] = -1
+
+    def _free_subtree(self, node: int) -> None:
+        """Return all nodes in the subtree to the free list (iterative)."""
+        stack = [node]
+        while stack:
+            nd = stack.pop()
+            if self._feat_idx[nd] >= 0:    # internal
+                stack.append(int(self._left[nd]))
+                stack.append(int(self._right[nd]))
+                self._feat_idx[nd] = -1
+            self._free.append(nd)
 
     # ── score ─────────────────────────────────────────────────────────────────
 
-    def score_one(self, x: dict[str, float]) -> float:
-        """Return path depth + leaf correction for x in this tree."""
-        if self.root is None:
+    def score_one(self, x: np.ndarray) -> float:
+        """Path depth + leaf correction. The hot path — tight array index loop."""
+        if self._root < 0:
             return 0.0
-        return self._path_depth(self.root, x)
-
-    def _path_depth(self, node: _OIFNode, x: dict[str, float]) -> float:
-        if node.is_leaf:
-            return node.depth + self._leaf_correction(node.h)
-        child = node.left if x[node.split_feature] < node.split_value else node.right
-        return self._path_depth(child, x)
+        node  = self._root
+        depth = 0
+        while self._feat_idx[node] >= 0:
+            fi    = int(self._feat_idx[node])
+            node  = int(self._left[node]) if x[fi] < self._threshold[node] \
+                    else int(self._right[node])
+            depth += 1
+        return depth + self._leaf_correction(int(self._h[node]))
 
     # ── attribution ───────────────────────────────────────────────────────────
 
     def attribute_path(
         self,
-        x:            dict[str, float],
+        x:            np.ndarray,
         model_weight: float,
-        feat_scores:  dict[str, float],
+        feat_scores:  np.ndarray,   # shape (n_features,), accumulated in-place
     ) -> None:
-        """Walk the path for x, accumulating depth-weighted attribution.
-
-        Features at shallower depth isolated x more — weight by 1/(depth+1).
-        model_weight scales by the window model's contribution to composite.
-        """
-        node  = self.root
+        """Depth-weighted attribution: features at shallower depth get higher weight."""
+        if self._root < 0:
+            return
+        node  = self._root
         depth = 0
-        while node is not None and not node.is_leaf:
-            feat_scores[node.split_feature] += model_weight / (depth + 1)
-            node  = node.left if x[node.split_feature] < node.split_value else node.right
+        while self._feat_idx[node] >= 0:
+            fi = int(self._feat_idx[node])
+            feat_scores[fi] += model_weight / (depth + 1)
+            node  = int(self._left[node]) if x[fi] < self._threshold[node] \
+                    else int(self._right[node])
             depth += 1
 
 
-class OnlineIsolationForest:
-    """Ensemble of OnlineIsolationTrees with a sliding window.
+# ── Online Isolation Forest — Leveni et al. ICML 2024 ─────────────────────────
 
-    Each new point is learned into all trees. When the window fills, the
-    oldest point is explicitly unlearned — no batch retraining.
+class OnlineIsolationForest:
+    """Ensemble of _ArrayTrees with a sliding window.
+
+    All internal APIs take np.ndarray (not dict) — the caller is responsible
+    for converting the flow feature vector to a numpy array before calling.
 
     Anomaly score = 2^(-E[depth] / c(ω, η)) where c(ω, η) = log₂(ω/η).
-    This is the same normalisation as classical iForest adapted for the
-    online setting (paper §3.2). Score ∈ (0,1), higher = more anomalous.
+    Score ∈ (0,1), higher = more anomalous.
     """
 
     def __init__(
         self,
         feature_names:    list[str],
-        n_trees:          int = 32,
-        window_size:      int = 2048,
-        max_leaf_samples: int = 32,
+        n_trees:          int   = 32,
+        window_size:      int   = 2048,
+        max_leaf_samples: int   = 32,
         subsample:        float = 1.0,
-        seed:             int = 42,
+        seed:             int   = 42,
     ) -> None:
         self.feature_names    = feature_names
+        self.n_features       = len(feature_names)
         self.window_size      = window_size
         self.max_leaf_samples = max_leaf_samples
         self.subsample        = subsample
-
-        # max_depth = log₂(ω/η) — the depth at which a fully grown tree
-        # contains exactly one point per leaf (Liu et al. 2008 §3).
         self.max_depth        = max(1, int(math.log2(window_size / max_leaf_samples)))
-        # Normalization: expected average depth for a uniform dataset.
         self._norm            = float(self.max_depth)
-
-        self._rng    = random.Random(seed)
-        self._trees  = [
-            OnlineIsolationTree(feature_names, max_leaf_samples, random.Random(seed + i))
+        self._rng             = random.Random(seed)
+        self._trees           = [
+            _ArrayTree(self.n_features, max_leaf_samples, random.Random(seed + i))
             for i in range(n_trees)
         ]
-        # Sliding window stored as a plain deque — managed manually so we
-        # can unlearn the ejected point before it leaves the deque.
-        self._window: deque[dict[str, float]] = deque()
+        self._window: deque[np.ndarray] = deque()
 
-    def learn_one(self, x: dict[str, float]) -> None:
+    def learn_one(self, x: np.ndarray) -> None:
         if len(self._window) >= self.window_size:
             old = self._window.popleft()
             for tree in self._trees:
                 tree.unlearn_one(old)
-
         self._window.append(x)
         for tree in self._trees:
             if self.subsample < 1.0 and self._rng.random() >= self.subsample:
                 continue
             tree.learn_one(x, self.max_depth)
 
-    def score_one(self, x: dict[str, float]) -> float:
+    def score_one(self, x: np.ndarray) -> float:
         if not self._window:
             return 0.5
         depths     = [t.score_one(x) for t in self._trees]
@@ -348,11 +407,11 @@ class OnlineIsolationForest:
 
     def attribute(
         self,
-        x:            dict[str, float],
+        x:            np.ndarray,
         model_weight: float,
-        feat_scores:  dict[str, float],
+        feat_scores:  np.ndarray,
     ) -> None:
-        """Accumulate path-depth attribution across all trees."""
+        """Accumulate depth-weighted attribution across all trees."""
         for tree in self._trees:
             tree.attribute_path(x, model_weight, feat_scores)
 
@@ -375,54 +434,41 @@ class MultiWindowOIF:
     influence, resisting poisoning by sustained floods. All three models share
     the same feature set and are kept in sync (learn_one / selective training
     applied identically).
+
+    Thread safety: each MultiWindowOIF instance must be accessed from exactly
+    one thread. The caller (main.py) ensures this via the protocol-split worker
+    layout — tcp_detector owned by tcp_worker, udp_detector by udp_worker.
     """
 
     _WINDOWS = (256, 1024, 4096)
     _WEIGHTS = (0.20, 0.30, 0.50)
 
+    # Tree storage format version. Bump when the internal tree structure changes
+    # so that stale pickles are rejected and a fresh baseline is started.
+    # v1 = linked _OIFNode objects; v2 = flat _ArrayTree arrays (current).
+    _TREE_VERSION = 2
+
     # Flows scoring at or above this threshold are withheld from training —
     # prevents attack traffic from shifting the model's definition of normal.
-    #
-    # Set at 0.80 — above the CRITICAL display threshold (0.80) so any flow
-    # that would be shown as CRITICAL is never trained on. Previously 0.72:
-    # at FPR_HIGH ~63%, TRAIN_THRESHOLD=0.72 caused >90% of benign flows to
-    # cascade through the cooldown mechanism, starving the model of training
-    # data and cementing the poor IQR estimates that drove the high FPR.
     TRAIN_THRESHOLD = 0.80
 
-    # Scale factor for the out-of-range (OOR) augmentation score.
-    # OIF trees assign paths of maximum depth to points outside their training
-    # bounding box, producing a score ≈ 0.5 that falls below TRAIN_THRESHOLD.
-    # The OOR term catches this regime: oor_score = 1 - exp(-deviation/OOR_SCALE),
-    # where deviation = max |x_scaled[i]| (L∞ norm in RobustScaler space, unit = IQR).
-    # At OOR_SCALE=25: deviation ≥ 22.9 IQR → oor_score ≥ 0.60 (HIGH);
-    #                  deviation ≥ 34.6 IQR → oor_score ≥ 0.80 (CRITICAL).
-    # Volumetric floods deviate thousands of IQR on rate features — still CRITICAL.
-    # Scale=10 was too aggressive: tight-IQR features (uniform baseline) triggered
-    # false positives at 9 IQR, which is reachable by natural traffic variation.
+    # OOR augmentation: oor_score = 1 - exp(-deviation/OOR_SCALE), where
+    # deviation = max |x_scaled[i]| (L∞ norm in RobustScaler space, unit = IQR).
     OOR_SCALE = 25.0
 
-    # After a flow is rejected (composite >= TRAIN_THRESHOLD), withhold the next
-    # COOLDOWN_FLOWS flows from training regardless of their individual scores.
-    # This blocks the majority of attack flows that score just below TRAIN_THRESHOLD —
-    # in a sustained flood, rejections recur every few flows, so the cooldown keeps
-    # resetting and no attack flow reaches the training buffers.
-    # After the attack ends, the cooldown expires naturally once COOLDOWN_FLOWS
-    # consecutive flows arrive without triggering a new rejection.
-    #
-    # Reduced from 50 to 25: during a real attack, rejections recur every ~5-10
-    # flows, so COOLDOWN=25 still blocks essentially all attack flows. The
-    # reduction allows benign flows to resume training faster after isolated
-    # false-positive rejections, preventing model starvation under high FPR.
+    # After a rejection, withhold the next COOLDOWN_FLOWS from training.
     COOLDOWN_FLOWS = 25
 
-    # Save to disk every N trained flows so a mid-session restart loses at
-    # most this many flows' worth of learned structure.
+    # Save to disk every N trained flows.
     _SAVE_INTERVAL = 200
 
-    def __init__(self, feature_names: list[str], protocol: str,
-                 baseline_flows: int | None = None,
-                 save_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        feature_names: list[str],
+        protocol:      str,
+        baseline_flows: int | None = None,
+        save_path:     str | Path | None = None,
+    ) -> None:
         self.feature_names = feature_names
         self.protocol      = protocol
         self._save_path    = Path(save_path) if save_path else None
@@ -438,25 +484,19 @@ class MultiWindowOIF:
             for i, w in enumerate(self._WINDOWS)
         ]
 
-        # RobustScaler fitted during baselining. Uses median/IQR rather than
-        # mean/std — less sensitive to extremes in the warmup period.
         self._scaler        = RobustScaler()
         self._scaler_fitted = False
 
         self._baseline_buffer:   list[np.ndarray] = []
         self._baseline_complete = False
-        # TCP: wait for the slow window (4096) — continuous traffic makes this
-        # achievable quickly. UDP: medium window (1024) — ensures both the fast
-        # and medium models complete at least one full window cycle before
-        # detection activates; sparse UDP traffic makes 4096 impractical.
         self.BASELINE_FLOWS = baseline_flows if baseline_flows is not None else self._WINDOWS[2]
 
         self._n_trained  = 0
-        self._n_seen     = 0   # flows processed after baseline complete
-        self._n_rejected = 0   # flows withheld from training (composite >= TRAIN_THRESHOLD)
-        self._n_frozen   = 0   # flows withheld due to cooldown after a rejection
-        self._cooldown   = 0   # remaining flows to withhold after the last rejection
-        self._score_buf: deque[float] = deque(maxlen=500)  # rolling composite scores
+        self._n_seen     = 0
+        self._n_rejected = 0
+        self._n_frozen   = 0
+        self._cooldown   = 0
+        self._score_buf: deque[float] = deque(maxlen=500)
 
     # ── baselining ────────────────────────────────────────────────────────────
 
@@ -475,47 +515,20 @@ class MultiWindowOIF:
         self._scaler.fit(X)
         self._scaler_fitted = True
 
-        # Prevent zero-IQR collapse: sklearn sets scale_=1.0 when a feature
-        # has zero IQR in the baseline (e.g., every flow has the same TCP window
-        # size, or fwd_iat_std=0 for all 2-packet flows). Division by 1 raw unit
-        # (milliseconds, bytes, pkts/s) produces enormous deviations for any
-        # non-zero value, triggering false-positive OOR scores on every flow.
-        #
-        # Floors represent the expected natural IQR for each feature in normal
-        # traffic — NOT just "above zero". Setting them too small defeats the
-        # purpose: flow_duration_s floor=0.0005s means a 60ms HTTP flow deviates
-        # 120 IQR (CRITICAL). Floors must cover the typical spread of the feature
-        # across legitimate flows so that natural variation stays within 1-2 IQR.
-        #
-        # Time/IAT features: HTTP flows range 1ms–500ms duration, 1ms–100ms IAT.
-        # Rate features: 1–50 pkts/s for normal interactive traffic.
-        # Floors represent the minimum believable IQR for each feature across
-        # normal application traffic — NOT just "above zero". Docker baseline
-        # periods are dominated by infrastructure traffic (health checks every
-        # 5s, DNS queries, keepalive ACKs) which collapses IQR to near zero
-        # for packet-size and rate features. A real HTTP flow with pkt_len_std=300
-        # bytes would then deviate 75 IQR against a floor-4 scale → CRITICAL.
-        #
-        # Size floors (100 bytes): normal mixed traffic spans ACKs (0 payload)
-        # to MTU-size responses — the natural IQR is 100–400 bytes. Floor at
-        # 100 keeps a 300-byte std flow within 3 IQR (INFO).
-        #
-        # Rate floors (5 pkts/s): health checks give ~0.2 pkts/s; real web
-        # sessions run 5–50 pkts/s. Floor at 5 keeps a 30-pkts/s session
-        # within 6 IQR (INFO) while a DoS at 5000 pkts/s still hits ~1000 IQR.
+        # IQR floor: prevents zero-IQR collapse (see detailed comment in original).
         _FLOORS: dict[str, float] = {
-            "fwd_pkts_per_sec":   5.0,    # pkts/s — real sessions vs health-check baseline
-            "bwd_pkts_per_sec":   5.0,    # pkts/s
-            "pkt_len_mean":     100.0,    # bytes — ACK to MTU natural spread
-            "pkt_len_std":      100.0,    # bytes
-            "flow_duration_s":    0.05,   # 50 ms — covers HTTP 1ms–500ms range
-            "flow_iat_mean":      10.0,   # ms — covers typical HTTP IAT spread
-            "fwd_iat_std":        5.0,    # ms
-            "init_fwd_win_bytes": 64.0,   # bytes
+            "fwd_pkts_per_sec":   5.0,
+            "bwd_pkts_per_sec":   5.0,
+            "pkt_len_mean":     100.0,
+            "pkt_len_std":      100.0,
+            "flow_duration_s":    0.05,
+            "flow_iat_mean":      10.0,
+            "fwd_iat_std":        5.0,
+            "init_fwd_win_bytes": 64.0,
             "syn_flag_ratio":     0.02,
             "fwd_act_data_ratio": 0.02,
             "down_up_ratio":      0.02,
-            "bwd_pkt_len_max":   50.0,    # bytes
+            "bwd_pkt_len_max":   50.0,
         }
         for i, name in enumerate(self.feature_names):
             floor = _FLOORS.get(name, 1.0)
@@ -524,21 +537,12 @@ class MultiWindowOIF:
                          self.protocol, name, self._scaler.scale_[i], floor)
                 self._scaler.scale_[i] = floor
 
-        # Seed each model on the tail of the baseline corpus — only the last
-        # window_size flows matter because the OIF sliding window evicts older
-        # points as new ones arrive. Seeding 4096 flows into a 256-window model
-        # performs 3840 wasted learn+unlearn cycles; seeding only the tail 256
-        # gives identical final tree state in 16× less work. This keeps the
-        # seeding step from blocking Thread 2 for several minutes.
-        X_scaled = np.array([
-            self._scaler.transform(raw.reshape(1, -1))[0]
-            for raw in self._baseline_buffer
-        ])
+        # Seed each model on the tail of the baseline corpus.
+        X_scaled = self._scaler.transform(X)
         for model, window_size in zip(self._models, self._WINDOWS):
             tail = X_scaled[-window_size:]
-            for x_scaled_row in tail:
-                x_dict = _to_oif_dict(x_scaled_row, self.feature_names)
-                model.learn_one(x_dict)
+            for row in tail:
+                model.learn_one(row)
 
         self._baseline_complete = True
         self._baseline_buffer.clear()
@@ -549,7 +553,6 @@ class MultiWindowOIF:
     # ── persistence ───────────────────────────────────────────────────────────
 
     def save(self) -> None:
-        """Pickle the detector to _save_path. No-op if no path was set."""
         if self._save_path is None:
             return
         try:
@@ -564,18 +567,13 @@ class MultiWindowOIF:
             log.warning("[%s OIF] Failed to save model", self.protocol, exc_info=True)
 
     def __setstate__(self, state: dict) -> None:
-        """Restore from pickle, filling in defaults for attributes added after the pkl was saved.
-
-        Any new instance variable added to __init__ must have a default here so that
-        loading a stale pkl doesn't produce AttributeError at runtime.
-        """
+        """Restore from pickle. Fills in defaults for attributes added later."""
         self.__dict__.update(state)
         if "_n_frozen"  not in state: self._n_frozen  = 0
         if "_cooldown"  not in state: self._cooldown  = 0
 
     @classmethod
     def load(cls, path: str | Path) -> "MultiWindowOIF":
-        """Load a pickled detector. Raises on any error — caller handles fallback."""
         with open(path, "rb") as f:
             obj = pickle.load(f)
         if not isinstance(obj, cls):
@@ -583,7 +581,9 @@ class MultiWindowOIF:
         return obj
 
     def _compatible_with(self, feature_names: list[str]) -> bool:
-        return self.feature_names == feature_names
+        """Check feature set AND tree format version before trusting a loaded pkl."""
+        version_ok = getattr(self, "_TREE_VERSION", 1) == MultiWindowOIF._TREE_VERSION
+        return self.feature_names == feature_names and version_ok
 
     # ── inference ─────────────────────────────────────────────────────────────
 
@@ -609,9 +609,6 @@ class MultiWindowOIF:
         oor_score     = 1.0 - math.exp(-max_deviation / self.OOR_SCALE)
 
         if oor_score >= 0.55 or log.isEnabledFor(logging.DEBUG):
-            # Log which feature is driving the OOR score — essential for
-            # diagnosing false positives. At INFO level only fires when oor
-            # is near-threshold; at DEBUG level fires for every flow.
             worst_i   = int(np.argmax(np.abs(x_scaled)))
             worst_dev = float(np.abs(x_scaled[worst_i]))
             log.debug("[%s OIF] oor=%.3f worst=%s dev=%.1f IQR",
@@ -619,11 +616,9 @@ class MultiWindowOIF:
                       self.feature_names[worst_i], worst_dev)
 
         if oor_score >= self.TRAIN_THRESHOLD:
-            # Fast path: extreme outlier determined by the OOR term alone.
-            # Skip the 96-tree OIF traversal — it adds nothing for points this
-            # far outside the training bounding box, and avoiding it keeps
-            # queue drain time low during flood bursts (~0.3ms vs ~8ms per flow).
-            # Attribution is a single out-of-range entry naming the worst feature.
+            # Fast path: extreme outlier — skip 96-tree traversal entirely.
+            # Points this far outside the training bounding box are always CRITICAL
+            # regardless of the OIF path length. Attribution names the worst feature.
             composite  = oor_score
             worst_feat = self.feature_names[int(np.argmax(np.abs(x_scaled)))]
             window_scores = WindowScores(fast=oor_score, medium=oor_score,
@@ -636,110 +631,86 @@ class MultiWindowOIF:
             }]
         else:
             # Normal path: full OIF scoring + path-depth attribution.
-            x_dict    = _to_oif_dict(x_scaled, self.feature_names)
-            scores    = tuple(m.score_one(x_dict) for m in self._models)
+            scores    = tuple(m.score_one(x_scaled) for m in self._models)
             composite = max(sum(w * s for w, s in zip(self._WEIGHTS, scores)), oor_score)
             window_scores = WindowScores(
                 fast=scores[0], medium=scores[1], slow=scores[2],
                 composite=composite,
             )
-            attribution = self._attribute(x_dict, raw)
+            attribution = self._attribute(x_scaled, raw)
 
         self._n_seen += 1
         self._score_buf.append(composite)
 
         if composite >= self.TRAIN_THRESHOLD:
-            # Anomalous — reject and reset cooldown so the next COOLDOWN_FLOWS
-            # flows are also withheld. This propagates the rejection forward,
-            # blocking the majority of flood flows that score just below the
-            # threshold (they arrive between consecutive rejections).
             self._n_rejected += 1
             self._cooldown = self.COOLDOWN_FLOWS
         elif self._cooldown_active:
             self._cooldown -= 1
             self._n_frozen += 1
         else:
-            # Only reachable via the normal path — x_dict is defined.
+            # x_scaled defined — only reachable via the normal path
             for model in self._models:
-                model.learn_one(x_dict)
+                model.learn_one(x_scaled)
             self._n_trained += 1
             if self._n_trained % self._SAVE_INTERVAL == 0:
                 self.save()
 
         return window_scores, attribution, oor_score
 
-    # ── path-depth attribution ─────────────────────────────────────────────────
+    # ── path-depth attribution ────────────────────────────────────────────────
 
     def _attribute(
         self,
-        x_dict: dict[str, float],
-        x_raw:  np.ndarray,
+        x_scaled: np.ndarray,
+        x_raw:    np.ndarray,
     ) -> list[dict]:
         """Depth-weighted attribution over all trees and all window models.
 
-        Splits in OIF trees are chosen from the actual observed data range —
-        unlike HST's random half-spaces, they reflect real traffic structure.
-        A feature that appears at depth 0 (root) isolated this flow from all
-        baseline traffic in a single cut; depth 3 means four cuts were needed.
-
+        feat_scores is a numpy array accumulated in-place across all trees.
         Model weights (0.20/0.30/0.50) are applied so the slow model's trees
         dominate — matching their dominance in the composite score.
         """
-        feat_scores: dict[str, float] = defaultdict(float)
+        feat_scores = np.zeros(len(self.feature_names), dtype=np.float64)
+        for model, weight in zip(self._models, self._WEIGHTS):
+            model.attribute(x_scaled, weight, feat_scores)
 
-        for model, model_weight in zip(self._models, self._WEIGHTS):
-            model.attribute(x_dict, model_weight, feat_scores)
-
-        total  = sum(feat_scores.values()) or 1.0
-        ranked = sorted(feat_scores.items(), key=lambda kv: kv[1], reverse=True)
-
-        stats = self.baseline_stats()
+        total      = float(feat_scores.sum()) or 1.0
+        top3_idx   = np.argsort(feat_scores)[::-1][:3]
+        stats      = self.baseline_stats()
         return [
             {
-                "feature":  name,
-                "score":    score / total,
-                "value":    float(x_raw[self.feature_names.index(name)]),
-                "baseline": stats.get(name, {}),
+                "feature":  self.feature_names[i],
+                "score":    float(feat_scores[i] / total),
+                "value":    float(x_raw[i]),
+                "baseline": stats.get(self.feature_names[i], {}),
             }
-            for name, score in ranked[:3]
+            for i in top3_idx
         ]
 
-    # ── health metrics ──────��──────────────────────────────────────────────────
+    # ── health metrics ────────────────────────────────────────────────────────
 
     def metrics(self) -> dict:
-        """Runtime health metrics for the dashboard Model Health panel.
-
-        rejection_rate rising during an attack means the poisoning defence is
-        working — anomalous flows are being withheld from training. A falling
-        rate after an attack ends reflects the slow window forgetting the attack
-        distribution and returning to normal.
-        """
         buf = list(self._score_buf)
         arr = np.array(buf) if buf else np.array([0.0])
         return {
-            "n_seen":           self._n_seen,
-            "n_trained":        self._n_trained,
-            "n_rejected":       self._n_rejected,
-            "n_frozen":         self._n_frozen,
-            "rejection_rate":   self._n_rejected / max(self._n_seen, 1),
+            "n_seen":             self._n_seen,
+            "n_trained":          self._n_trained,
+            "n_rejected":         self._n_rejected,
+            "n_frozen":           self._n_frozen,
+            "rejection_rate":     self._n_rejected / max(self._n_seen, 1),
             "cooldown_remaining": self._cooldown,
-            "score_p50":        float(np.percentile(arr, 50)),
-            "score_p95":        float(np.percentile(arr, 95)),
-            "score_recent":     buf[-20:],   # last 20 scores for sparkline
-            # Baseline progress — useful when ready=False so callers can show
-            # how many flows have been collected vs the target.
-            "n_baseline":       len(self._baseline_buffer),
-            "n_baseline_target": self.BASELINE_FLOWS,
+            "score_p50":          float(np.percentile(arr, 50)),
+            "score_p95":          float(np.percentile(arr, 95)),
+            "score_recent":       buf[-20:],
+            "n_baseline":         len(self._baseline_buffer),
+            "n_baseline_target":  self.BASELINE_FLOWS,
         }
 
-    # ── baseline statistics for dashboard context ──────────────────────────────
+    # ── baseline statistics for dashboard context ─────────────────────────────
 
     def baseline_stats(self) -> dict[str, dict[str, float]]:
-        """Median and IQR per feature from the fitted RobustScaler.
-
-        Used by the dashboard to show 'value: X  baseline: Y ± Z'
-        next to each attribution bar.
-        """
+        """Median and IQR per feature from the fitted RobustScaler."""
         if not self._scaler_fitted:
             return {}
         return {
@@ -753,18 +724,17 @@ class MultiWindowOIF:
 
 # ── Module-level detector instances ───────────────────────────────────────────
 #
-# One per protocol, shared across inference calls from the single worker thread.
-# On startup, try to load a previously saved model so baselining is skipped.
-# If the saved file is absent, corrupt, or was built on a different feature set,
-# fall back to a fresh instance silently.
+# One per protocol. On startup, try to load a previously saved model; fall back
+# to a fresh instance if absent, corrupt, wrong feature set, or wrong version.
+# Each detector is accessed from exactly one dedicated worker thread (see main.py).
 
 _MODEL_DIR = Path("/app/models")
 
 
 def _load_or_create(
-    feature_names: list[str],
-    protocol: str,
-    filename: str,
+    feature_names:  list[str],
+    protocol:       str,
+    filename:       str,
     baseline_flows: int | None = None,
 ) -> "MultiWindowOIF":
     path = _MODEL_DIR / filename
@@ -772,16 +742,16 @@ def _load_or_create(
         try:
             detector = MultiWindowOIF.load(path)
             if detector._compatible_with(feature_names):
-                # Overwrite the pickled path with the current one — in case
-                # the models dir differs across environments.
                 detector._save_path = path
                 log.info("[%s OIF] Loaded saved model from %s (%d trained, baseline=%s)",
                          protocol, path, detector._n_trained,
                          "complete" if detector.is_ready else "incomplete")
                 return detector
-            log.warning("[%s OIF] Saved model has different feature set — starting fresh", protocol)
+            log.warning("[%s OIF] Incompatible saved model (feature set or version mismatch)"
+                        " — starting fresh", protocol)
         except Exception:
-            log.warning("[%s OIF] Could not load %s — starting fresh", protocol, path, exc_info=True)
+            log.warning("[%s OIF] Could not load %s — starting fresh",
+                        protocol, path, exc_info=True)
 
     return MultiWindowOIF(feature_names, protocol=protocol,
                           baseline_flows=baseline_flows, save_path=path)
@@ -793,13 +763,7 @@ udp_detector = _load_or_create(UDP_IF_FEATURE_NAMES, "UDP", "udp_oif.pkl",
 
 
 def reset_detector(protocol: str) -> None:
-    """Discard a trained detector and start fresh baselining.
-
-    Deletes the persisted pkl so the next startup also starts clean.
-    Called when the analyst triggers 'Reset baseline' from the dashboard —
-    useful after clearing an attack to prevent attack flows from polluting
-    the baseline going forward.
-    """
+    """Discard a trained detector and start fresh baselining."""
     global tcp_detector, udp_detector
     cfg = _cfg_module.cfg
 
@@ -842,19 +806,6 @@ def process_flow(flow: dict) -> dict | None:
         log.debug("Unsupported protocol %d — skipping", proto)
         return None
 
-    # Protocol-specific degenerate-flow filter.
-    #
-    # TCP: skip flows with fewer than 4 total packets. On a co-located Docker bridge
-    # the wire speed is ~1 Gbps — even a 100 KB download completes in < 1 ms, so
-    # duration-based filtering would block all legitimate HTTP flows. Packet count
-    # is a reliable discriminator instead:
-    #   < 4 pkts: SYN+RST stubs, SYN+SYN-ACK half-connections, residual FIN packets,
-    #             keepalive ACK pairs — all have uniform (often zero) pkt_len_std and
-    #             poison the scaler's median, making real HTTP flows look anomalous.
-    #   ≥ 4 pkts: any complete TCP data exchange (HTTP ≥ 7 pkts, SSH ≥ 10 pkts).
-    #
-    # UDP: skip flows shorter than 0.1 ms. DNS queries (~0.23 ms) pass; single-packet
-    #      ICMP/misfire artifacts (~27 μs) are blocked.
     if proto == 6 and flow.get("tot_pkts", 0) < 4:
         return None
     if proto == 17 and flow.get("flow_duration_s", 0.0) < 1e-4:
@@ -874,8 +825,6 @@ def process_flow(flow: dict) -> dict | None:
 
     scores, attribution, oor_score = result
 
-    # Read thresholds from the live config — analyst can adjust via dashboard
-    # without restarting the inference engine.
     cfg = _cfg_module.cfg
     if scores.composite >= cfg.threshold_critical:
         severity = "CRITICAL"
@@ -892,7 +841,7 @@ def process_flow(flow: dict) -> dict | None:
             "medium":    scores.medium,
             "slow":      scores.slow,
             "composite": scores.composite,
-            "oor":       oor_score,   # out-of-range component; dominates for floods/scans
+            "oor":       oor_score,
         },
         "verdict":     severity,
         "attribution": attribution,

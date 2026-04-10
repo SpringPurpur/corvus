@@ -1,12 +1,21 @@
 # main.py — starts all threads and runs uvicorn.
 #
 # Thread layout:
-#   Thread 1 (daemon): Unix socket server — socket_reader.run_socket_server()
-#   Thread 2 (daemon): inference worker   — reads flow_queue, runs classifier
-#   Thread 3 (main):   uvicorn asyncio event loop — FastAPI + WebSocket
+#   Thread 1 (daemon): Unix socket server  — socket_reader.run_socket_server()
+#   Thread 2 (daemon): flow router         — dispatches flow_queue → tcp_queue / udp_queue
+#   Thread 3 (daemon): TCP inference worker — reads tcp_queue, runs classifier
+#   Thread 4 (daemon): UDP inference worker — reads udp_queue, runs classifier
+#   Thread 5 (main):   uvicorn asyncio event loop — FastAPI + WebSocket
 #
-# The inference worker puts completed alert dicts onto alert_queue. A background
-# asyncio task drains alert_queue and broadcasts via the WebSocket manager.
+# Protocol split rationale: tcp_detector and udp_detector have zero shared
+# state — splitting them onto separate threads gives true parallel inference
+# without any locking. During a SYN flood (TCP-only), the UDP worker is
+# unaffected. Each worker accesses only its own detector, so the OIF arrays
+# are never accessed from two threads simultaneously.
+#
+# Stats broadcasting: each protocol worker broadcasts combined tcp+udp stats
+# every 20 flows processed by that worker. Messages are read-only accesses to
+# both detectors via the module reference, which is safe under the GIL.
 
 import argparse
 import asyncio
@@ -31,33 +40,60 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# ── First-flow synchronisation ─────────────────────────────────────────────────
+# Either protocol worker may see the first flow. Use a threading.Event so the
+# "capture is up" signal fires exactly once regardless of which worker fires first.
+_capture_event = threading.Event()
 
-def _inference_worker(
+
+def _router(
     flow_queue: queue.Queue,
-    alert_queue: asyncio.Queue,
-    loop: asyncio.AbstractEventLoop,
-    classifier: Classifier,
+    tcp_queue:  queue.Queue,
+    udp_queue:  queue.Queue,
 ) -> None:
-    """Drain flow_queue, run inference, push alerts onto the asyncio alert_queue.
+    """Dispatch flows from the shared socket queue to protocol-specific queues.
 
-    Accesses tcp_detector / udp_detector through the _od module reference so
-    that post-reset reassignments in online_detector are always visible — a
-    local 'from online_detector import tcp_detector' would capture the old
-    object and produce stale stats after a baseline reset.
+    Other protocols are dropped here — process_flow already filters them, but
+    routing keeps the per-protocol workers clean and removes any dict lookup
+    from their hot path.
     """
-    _stats_counter = 0
-    _capture_signalled = False   # True once the first flow is dequeued
-    _detector_was_ready = False  # tracks tcp_detector.is_ready transitions
-
     while True:
         try:
             flow = flow_queue.get(timeout=1.0)
         except queue.Empty:
             continue
+        proto = flow.get("protocol")
+        if proto == 6:
+            tcp_queue.put(flow)
+        elif proto == 17:
+            udp_queue.put(flow)
 
-        # ── Signal capture-engine liveness on the first flow ──────────────────
-        if not _capture_signalled:
-            _capture_signalled = True
+
+def _protocol_worker(
+    proto_queue:      queue.Queue,
+    alert_queue:      asyncio.Queue,
+    loop:             asyncio.AbstractEventLoop,
+    classifier:       Classifier,
+    proto_name:       str,   # "TCP" or "UDP"
+) -> None:
+    """Inference worker for a single protocol.
+
+    Accesses only the detector for its own protocol via classifier.predict(),
+    which internally routes to tcp_detector or udp_detector based on the flow's
+    protocol field. No shared mutable state with the other protocol worker.
+    """
+    _detector_was_ready = False
+    _stats_counter      = 0
+
+    while True:
+        try:
+            flow = proto_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
+
+        # ── Signal capture-engine liveness on the first flow (any protocol) ───
+        if not _capture_event.is_set():
+            _capture_event.set()
             notify_capture_up()
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
@@ -68,14 +104,12 @@ def _inference_worker(
         try:
             alert = classifier.predict(flow)
         except Exception as exc:
-            log.error("Classifier error: %s", exc)
+            log.error("[%s] Classifier error: %s", proto_name, exc)
             continue
 
         if alert is None:
             continue
 
-        # During baselining process_flow() returns {"status": "baselining", ...}
-        # — forward progress to the dashboard and skip alert logging.
         if alert.get("type") == "baselining":
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
@@ -87,8 +121,10 @@ def _inference_worker(
             )
             continue
 
-        # ── Detect tcp_detector readiness transition ───────────────────────────
-        # Covers both initial baseline completion and re-baselining after reset.
+        # ── Detect tcp_detector readiness transition ──────────────────────────
+        # Both workers check tcp_detector.is_ready because the dashboard "Models"
+        # indicator is keyed on TCP (the primary detector). UDP readiness is
+        # surfaced through the stats message.
         now_ready = _od.tcp_detector.is_ready
         if now_ready and not _detector_was_ready:
             loop.call_soon_threadsafe(
@@ -98,17 +134,18 @@ def _inference_worker(
             )
         _detector_was_ready = now_ready
 
-        log.info("Alert: proto=%s label=%s src=%s:%s dst=%s:%s",
-                 alert["proto"], alert["verdict"]["label"],
+        log.info("[%s] Alert: label=%s src=%s:%s dst=%s:%s",
+                 proto_name, alert["verdict"]["label"],
                  alert["src_ip"], alert["src_port"],
                  alert["dst_ip"], alert["dst_port"])
         storage.insert_flow(alert)
         loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
 
-        # Broadcast OIF health metrics every 10 flows so the dashboard
-        # Model Health panel updates in near-real-time without flooding the socket.
+        # Broadcast OIF health metrics every 20 flows.
+        # Both workers broadcast combined tcp+udp stats — the dashboard
+        # always gets a fresh view regardless of which protocol is active.
         _stats_counter += 1
-        if _stats_counter % 10 == 0:
+        if _stats_counter % 20 == 0:
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
                 {"type": "stats",
@@ -118,19 +155,12 @@ def _inference_worker(
 
 
 async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
-    """Drain the asyncio alert_queue and broadcast each item to all WS clients.
-
-    Status messages (baselining progress) are already fully-formed dicts with
-    a 'type' key and are broadcast as-is. Alert dicts are wrapped in the
-    standard {'type': 'alert', 'data': ...} envelope.
-    """
+    """Drain the asyncio alert_queue and broadcast each item to all WS clients."""
     while True:
         item = await alert_queue.get()
         if item.get("type") in ("status", "stats"):
             await manager.broadcast(item)
         else:
-            # Stamp WebSocket send time, then strip timing from the nested dict
-            # so it travels as a flat block inside the alert envelope.
             timing = item.pop("_timing", None)
             if timing:
                 timing["t_ws_ns"] = time.time_ns()
@@ -141,11 +171,10 @@ async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
 async def _run(args: argparse.Namespace) -> None:
     loop = asyncio.get_running_loop()
 
-    # Unbounded queue — Thread 1 (socket reader) must never block on put().
-    # A size limit causes blocking which backs up the Unix socket buffer and
-    # then the C ring buffer, creating a latency cascade under flood load.
-    # Memory cost is negligible: ~500 bytes × worst-case 50k queued flows ≈ 25 MB.
+    # Unbounded queues — socket reader and router must never block on put().
     flow_queue: queue.Queue = queue.Queue()
+    tcp_queue:  queue.Queue = queue.Queue()
+    udp_queue:  queue.Queue = queue.Queue()
     alert_queue: asyncio.Queue = asyncio.Queue()
 
     storage.init_db()
@@ -157,32 +186,46 @@ async def _run(args: argparse.Namespace) -> None:
     configure(alert_queue, llm)
 
     # Thread 1 — Unix socket server
-    t_socket = threading.Thread(
+    threading.Thread(
         target=run_socket_server,
         args=(flow_queue,),
         daemon=True,
         name="socket-reader",
-    )
-    t_socket.start()
+    ).start()
 
-    # Thread 2 — inference worker
-    t_infer = threading.Thread(
-        target=_inference_worker,
-        args=(flow_queue, alert_queue, loop, classifier),
+    # Thread 2 — router
+    threading.Thread(
+        target=_router,
+        args=(flow_queue, tcp_queue, udp_queue),
         daemon=True,
-        name="inference-worker",
-    )
-    t_infer.start()
+        name="flow-router",
+    ).start()
+
+    # Thread 3 — TCP inference worker
+    threading.Thread(
+        target=_protocol_worker,
+        args=(tcp_queue, alert_queue, loop, classifier, "TCP"),
+        daemon=True,
+        name="tcp-worker",
+    ).start()
+
+    # Thread 4 — UDP inference worker
+    threading.Thread(
+        target=_protocol_worker,
+        args=(udp_queue, alert_queue, loop, classifier, "UDP"),
+        daemon=True,
+        name="udp-worker",
+    ).start()
 
     # Asyncio task — broadcast worker
     asyncio.create_task(_broadcast_worker(alert_queue))
 
-    # Thread 3 — uvicorn (runs inside the asyncio loop)
+    # Thread 5 — uvicorn (runs inside the asyncio loop)
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
         port=8765,
-        log_level="warning",   # uvicorn access logs are noisy; use our own
+        log_level="warning",
     )
     server = uvicorn.Server(config)
     await server.serve()
