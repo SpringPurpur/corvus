@@ -543,10 +543,10 @@ class MultiWindowOIF:
             "bwd_pkts_per_sec":   5.0,
             "pkt_len_mean":     100.0,
             "pkt_len_std":      100.0,
-            "flow_duration_s":    0.05,
+            "flow_duration_s":    5.0,    # long-lived benign connections are normal
             "flow_iat_mean":      10.0,
             "fwd_iat_std":        5.0,
-            "init_fwd_win_bytes": 64.0,
+            "init_fwd_win_bytes": 8192.0, # TCP window varies by OS/kernel (~8KB margin)
             "syn_flag_ratio":     0.02,
             "fwd_act_data_ratio": 0.02,
             "down_up_ratio":      0.02,
