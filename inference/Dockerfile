@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# gcc required for Cython compilation; curl for healthcheck
+# build-essential (gcc + libc headers) required for Cython compilation; curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl gcc \
+        curl build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
