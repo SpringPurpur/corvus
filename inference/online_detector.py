@@ -43,6 +43,17 @@ import config as _cfg_module
 
 log = logging.getLogger(__name__)
 
+# ── Cython hot-path import ─────────────────────────────────────────────────────
+# Compiled at container build time via:  python setup_ext.py build_ext --inplace
+# Falls back to pure-Python implementations in _ArrayTree if absent.
+try:
+    from _array_tree import score_one_cy as _cy_score, attribute_path_cy as _cy_attr
+    _CY = True
+    log.info("Cython _array_tree extension loaded — using compiled hot paths")
+except ImportError:
+    _CY = False
+    log.info("Cython _array_tree not found — using pure-Python hot paths")
+
 # ── Feature definitions ────────────────────────────────────────────────────────
 #
 # Selected on three principles from the network measurement literature:
@@ -322,6 +333,11 @@ class _ArrayTree:
         """Path depth + leaf correction. The hot path — tight array index loop."""
         if self._root < 0:
             return 0.0
+        if _CY:
+            return _cy_score(
+                self._feat_idx, self._threshold, self._left, self._right,
+                self._h, self._root, x, self.max_leaf_samples,
+            )
         node  = self._root
         depth = 0
         while self._feat_idx[node] >= 0:
@@ -341,6 +357,12 @@ class _ArrayTree:
     ) -> None:
         """Depth-weighted attribution: features at shallower depth get higher weight."""
         if self._root < 0:
+            return
+        if _CY:
+            _cy_attr(
+                self._feat_idx, self._threshold, self._left, self._right,
+                self._root, x, model_weight, feat_scores,
+            )
             return
         node  = self._root
         depth = 0

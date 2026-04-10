@@ -7,3 +7,4 @@ shap
 numpy
 anthropic
 docker
+cython
