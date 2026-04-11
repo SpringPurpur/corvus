@@ -193,6 +193,24 @@ async def get_server_time() -> dict:
     return {"ts": time.time()}
 
 
+@app.get("/window_history")
+async def get_window_history(
+    proto:  str            = Query(default="TCP"),
+    since:  Optional[float] = Query(default=None),
+    bucket: int            = Query(default=300, ge=10, le=3600),
+) -> list:
+    """Time-bucketed average per-window OIF scores for the heatmap ribbon.
+
+    Defaults to the last 24 h at 5-minute bucket resolution.
+    """
+    if since is None:
+        since = time.time() - 86_400
+    return await run_in_threadpool(
+        storage.query_window_history,
+        proto=proto, since=since, bucket_sec=bucket,
+    )
+
+
 @app.get("/flows")
 async def get_flows(
     limit: int = Query(default=200, ge=1, le=50000),

@@ -7,6 +7,7 @@
 
 import type { OifMetrics, AppConfig, Alert } from '../types'
 import { WindowConsensus } from './WindowConsensus'
+import { HeatmapRibbon } from './HeatmapRibbon'
 
 interface Props {
   tcp:       OifMetrics
@@ -65,8 +66,9 @@ function ScoreSparkline({ scores, thHigh, thCrit }: { scores: number[]; thHigh: 
   )
 }
 
-function ProtocolPanel({ label, m, alerts, thHigh, thCrit }: {
-  label: string; m: OifMetrics; alerts: Alert[]; thHigh: number; thCrit: number
+function ProtocolPanel({ label, proto, m, alerts, thHigh, thCrit, config }: {
+  label: string; proto: 'TCP' | 'UDP'; m: OifMetrics; alerts: Alert[]
+  thHigh: number; thCrit: number; config: AppConfig
 }) {
   const badge   = rejectionBadge(m.rejection_rate)
   const trained  = m.n_seen > 0 ? (m.n_trained  / m.n_seen) * 100 : 0
@@ -152,6 +154,12 @@ function ProtocolPanel({ label, m, alerts, thHigh, thCrit }: {
           <WindowConsensus alerts={alerts} thHigh={thHigh} thCrit={thCrit} />
         </div>
       )}
+
+      {/* 24 h heatmap ribbon */}
+      <div>
+        <div className="text-[10px] text-muted-foreground mb-1.5">Score history (24 h)</div>
+        <HeatmapRibbon proto={proto} config={config} />
+      </div>
     </div>
   )
 }
@@ -160,13 +168,13 @@ export function ModelHealth({ tcp, udp, config, tcpAlerts, udpAlerts }: Props) {
   return (
     <div className="p-4 space-y-6 overflow-y-auto h-full text-sm">
 
-      <ProtocolPanel label="TCP detector" m={tcp} alerts={tcpAlerts}
-        thHigh={config.threshold_high} thCrit={config.threshold_critical} />
+      <ProtocolPanel label="TCP detector" proto="TCP" m={tcp} alerts={tcpAlerts}
+        thHigh={config.threshold_high} thCrit={config.threshold_critical} config={config} />
 
       <div className="border-t border-border" />
 
-      <ProtocolPanel label="UDP detector" m={udp} alerts={udpAlerts}
-        thHigh={config.threshold_high} thCrit={config.threshold_critical} />
+      <ProtocolPanel label="UDP detector" proto="UDP" m={udp} alerts={udpAlerts}
+        thHigh={config.threshold_high} thCrit={config.threshold_critical} config={config} />
 
       {/* Window memory reference */}
       <div className="border-t border-border pt-3 text-[10px] text-muted-foreground space-y-1">

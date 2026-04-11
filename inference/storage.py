@@ -334,6 +334,51 @@ def query_feedback(flow_id: str | None = None) -> list[dict]:
     ]
 
 
+def query_window_history(
+    proto: str,
+    since: float,
+    bucket_sec: int = 300,
+) -> list[dict]:
+    """Return time-bucketed average per-window scores for one protocol.
+
+    Groups flows into `bucket_sec`-wide buckets and averages the three OIF
+    window scores. Used by the dashboard heatmap ribbon to show score trends
+    over the last 24 h without requiring a separate write path.
+    """
+    if _conn is None:
+        return []
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        rows = read_conn.execute(
+            """
+            SELECT
+                CAST(ts / ? AS INTEGER) * ? AS bucket_ts,
+                AVG(score_fast)   AS fast,
+                AVG(score_medium) AS medium,
+                AVG(score_slow)   AS slow,
+                MAX(score_comp)   AS peak
+            FROM flows
+            WHERE proto = ? AND ts >= ? AND score_fast IS NOT NULL
+            GROUP BY bucket_ts
+            ORDER BY bucket_ts
+            """,
+            (bucket_sec, bucket_sec, proto.upper(), since),
+        ).fetchall()
+    finally:
+        read_conn.close()
+    return [
+        {
+            "ts":     r[0],
+            "fast":   r[1] or 0.0,
+            "medium": r[2] or 0.0,
+            "slow":   r[3] or 0.0,
+            "peak":   r[4] or 0.0,
+        }
+        for r in rows
+    ]
+
+
 def _row_to_alert(row: tuple) -> dict:
     (flow_id, ts, src_ip, dst_ip, src_port, dst_port,
      proto, duration, fwd_pkts,
