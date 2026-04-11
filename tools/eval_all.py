@@ -101,31 +101,23 @@ def reset(api: str) -> None:
 
 # -- DB snapshot --
 
-def snapshot_db(run_dir: Path, slug: str) -> None:
-    """Copy flows.db from the inference container into the run directory.
+# flows.db is bind-mounted: ./data:/app/data — accessible directly on the host.
+_DB_HOST_PATH = Path(__file__).parent.parent / "data" / "flows.db"
 
-    Uses 'docker ps' to locate the running inference container by name, then
-    docker cp to pull /app/data/flows.db out. If docker is unavailable or the
-    container is not found the step is skipped with a warning — the eval
-    results JSON files are still intact.
+
+def snapshot_db(run_dir: Path, slug: str) -> None:
+    """Copy flows.db from the bind-mounted data/ directory into the run directory.
+
+    data/flows.db is mounted directly from the host (./data:/app/data in
+    docker-compose.yml), so no docker cp is needed — a plain file copy works.
     """
+    import shutil
     dest = run_dir / f"flows_{slug}.db"
+    if not _DB_HOST_PATH.exists():
+        print(f"[db] WARNING: {_DB_HOST_PATH} not found — skipping DB snapshot")
+        return
     try:
-        ps = subprocess.run(
-            ["docker", "--context", "default", "ps",
-             "--filter", "name=inference", "--format", "{{.Names}}"],
-            capture_output=True, text=True, timeout=10,
-        )
-        containers = [c.strip() for c in ps.stdout.strip().splitlines() if c.strip()]
-        if not containers:
-            print("[db] WARNING: no running container matched 'inference' — skipping DB snapshot")
-            return
-        container = containers[0]
-        subprocess.run(
-            ["docker", "--context", "default", "cp",
-             f"{container}:/app/data/flows.db", str(dest)],
-            check=True, timeout=60,
-        )
+        shutil.copy2(str(_DB_HOST_PATH), str(dest))
         size_mb = dest.stat().st_size / (1024 * 1024)
         print(f"[db] Database snapshot saved: {dest.name}  ({size_mb:.1f} MB)")
     except Exception as exc:
@@ -348,6 +340,17 @@ def main() -> None:
     out_path.write_text(json.dumps(summary, indent=2))
     print(f"\n  Full summary saved to: {out_path}")
     print(f"  Run directory        : {run_dir}\n")
+
+    # -- Extract latency CSVs for thesis figures --
+    lat_script = Path(__file__).parent.parent / "thesis_figures" / "extract_latency_from_db.py"
+    if lat_script.exists():
+        print(f"\n[eval_all] Extracting pipeline latency data...")
+        subprocess.run(
+            [sys.executable, str(lat_script), "--run-dir", str(run_dir)],
+            capture_output=False,
+        )
+    else:
+        print(f"[eval_all] Skipping latency extraction (thesis_figures/ not present)")
 
 
 if __name__ == "__main__":
