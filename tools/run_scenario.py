@@ -18,10 +18,12 @@ The script:
 """
 
 import argparse
+import csv
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -390,6 +392,102 @@ def print_report(scenario: dict, result: dict, stats_before: dict, stats_after: 
     print(SEP)
 
 
+# -- Resource monitoring --
+
+def _parse_pct(s: str) -> float:
+    try:
+        return float(s.strip().rstrip("%"))
+    except ValueError:
+        return 0.0
+
+
+def _parse_size_mb(s: str) -> float:
+    """Parse docker stats size strings ('123.4MiB', '1.5GiB', '500kB') to MB."""
+    s = s.strip()
+    for suffix, factor in [("gib", 1024.0), ("gb", 1024.0),
+                           ("mib", 1.0),   ("mb", 1.0),
+                           ("kib", 1/1024), ("kb", 1/1024),
+                           ("b",   1/(1024*1024))]:
+        if s.lower().endswith(suffix):
+            try:
+                return float(s[:-len(suffix)]) * factor
+            except ValueError:
+                return 0.0
+    try:
+        return float(s) / (1024 * 1024)
+    except ValueError:
+        return 0.0
+
+
+class ResourceMonitor:
+    """Poll 'docker stats --no-stream' every poll_s seconds in a background thread.
+
+    Captures CPU%, memory MB, and net I/O for all running containers.
+    Call start() before the attack, stop() after recovery, then save_csv().
+    """
+
+    _FIELDS = ["ts", "container", "cpu_pct", "mem_mb", "mem_pct",
+               "net_rx_mb", "net_tx_mb"]
+
+    def __init__(self, poll_s: float = 2.0):
+        self._poll_s = poll_s
+        self._rows: list[dict] = []
+        self._stop   = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._stop.clear()
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=15)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._poll_s):
+            try:
+                self._sample()
+            except Exception:
+                pass
+
+    def _sample(self) -> None:
+        proc = subprocess.run(
+            DOCKER_CMD + ["stats", "--no-stream", "--format", "{{json .}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        ts = time.time()
+        for line in proc.stdout.strip().splitlines():
+            if not line.strip():
+                continue
+            try:
+                d    = json.loads(line)
+                name = d.get("Name") or d.get("Container", "?")
+                net  = d.get("NetIO", "0B / 0B")
+                rx_s, tx_s = (net.split("/") + ["0B"])[:2]
+                self._rows.append({
+                    "ts":        round(ts, 3),
+                    "container": name,
+                    "cpu_pct":   _parse_pct(d.get("CPUPerc", "0%")),
+                    "mem_mb":    _parse_size_mb(d.get("MemUsage", "0B / 0B").split("/")[0]),
+                    "mem_pct":   _parse_pct(d.get("MemPerc", "0%")),
+                    "net_rx_mb": _parse_size_mb(rx_s),
+                    "net_tx_mb": _parse_size_mb(tx_s),
+                })
+            except Exception:
+                pass
+
+    def save_csv(self, path: str) -> int:
+        """Write collected rows to CSV. Returns row count."""
+        if not self._rows:
+            return 0
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=self._FIELDS)
+            w.writeheader()
+            w.writerows(self._rows)
+        return len(self._rows)
+
+
 # -- Single-phase attack runner --
 
 def run_phase(container: str, script: str, args: list, phase_name: str = "Attack") -> tuple[float, float]:
@@ -485,6 +583,9 @@ def main() -> None:
     phases = scenario.get("phases") or [scenario.get("attack", {})]
     all_phases: list[dict] = []
 
+    resource_monitor = ResourceMonitor(poll_s=2.0)
+    resource_monitor.start()
+
     for phase in phases:
         if not phase:
             continue
@@ -529,6 +630,7 @@ def main() -> None:
 
     wait_for_queue_empty(args.api, timeout_s=180, label="post-attack drain")
 
+    resource_monitor.stop()
     stats_after = _get_stats(args.api)
 
     # -- Query flows --
@@ -699,6 +801,14 @@ def main() -> None:
         "thresholds":        {"high": args.threshold_high, "critical": args.threshold_critical},
         "output_path":       str(out_path),
     }
+
+    res_path = results_dir / f"resources_{stem}_{ts_str}.csv"
+    n_samples = resource_monitor.save_csv(str(res_path))
+    result["resources_path"] = str(res_path) if n_samples else None
+    if n_samples:
+        print(f"[resources] {n_samples} samples saved to {res_path.name}")
+    else:
+        print("[resources] WARNING: no resource samples collected (docker stats unavailable?)")
 
     out_path.write_text(json.dumps(result, indent=2))
 
