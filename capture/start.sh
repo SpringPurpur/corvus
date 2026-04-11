@@ -6,15 +6,15 @@
 BUILD_DIR="/app/capture/build"
 BINARY="$BUILD_DIR/capture_engine"
 
-# Build if the binary doesn't exist yet
-if [ ! -f "$BINARY" ]; then
-    echo "[monitor] Binary not found — building capture engine..."
-    mkdir -p "$BUILD_DIR"
-    cd "$BUILD_DIR"
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-march=native"
-    make -j"$(nproc)"
-    echo "[monitor] Build complete."
-fi
+# Always rebuild — source is bind-mounted so the binary must be compiled
+# inside the container (correct architecture/libs). Rebuilding on every
+# container start ensures source changes are always picked up.
+echo "[monitor] Building capture engine..."
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-march=native" -Wno-dev
+make -j"$(nproc)"
+echo "[monitor] Build complete."
 
 # Determine capture interface.
 # CAPTURE_INTERFACE env var takes precedence — set it in .env for physical
