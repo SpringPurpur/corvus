@@ -55,7 +55,7 @@ def _delete(url: str) -> dict:
     # 30s timeout: clear_flows() acquires _write_lock which the inference
     # worker also holds during inserts - contention can delay the response.
     req = urllib.request.Request(url, data=b"", method="DELETE")
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())
 
 

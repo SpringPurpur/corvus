@@ -68,10 +68,8 @@ def _post(url: str) -> dict:
 def _delete(url: str) -> dict:
     # data=b"" forces Content-Length: 0; without it urllib omits the header
     # and uvicorn drops the connection before sending a response.
-    # 30s timeout: clear_flows() acquires _write_lock; under active flow
-    # ingestion the inference worker may hold it for several seconds.
     req = urllib.request.Request(url, data=b"", method="DELETE")
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())
 
 

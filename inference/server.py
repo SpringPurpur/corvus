@@ -219,7 +219,7 @@ async def get_feedback(flow_id: Optional[str] = Query(default=None)) -> list:
 
 @app.delete("/flows")
 async def delete_flows() -> dict:
-    n = storage.clear_flows()
+    n = await run_in_threadpool(storage.clear_flows)
     return {"deleted": n}
 
 
