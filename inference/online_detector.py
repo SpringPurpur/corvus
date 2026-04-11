@@ -821,6 +821,7 @@ def process_flow(flow: dict) -> dict | None:
     Returns a baselining status dict during warmup, a full result dict
     during detection, or None for unsupported protocols or degenerate flows.
     """
+    cfg   = _cfg_module.cfg
     proto = flow["protocol"]
 
     if proto == 6:
@@ -839,6 +840,11 @@ def process_flow(flow: dict) -> dict | None:
         if src in MANAGEMENT_IPS or dst in MANAGEMENT_IPS:
             return None
 
+    # Default cfg.min_tcp_pkts=4 keeps micro-flows out of OIF scoring.
+    # Lowering to 2–3 (dev mode) allows port-scan/SYN-flood flows through for
+    # observation. Setting to 1 is deliberately blocked in the UI: an nmap SYN
+    # scan at 200 pkt/s produces ~1 000 simultaneous 1-packet flows, driving
+    # the asyncio inference queue to ~200 000 entries and stalling the pipeline.
     if proto == 6 and flow.get("tot_pkts", 0) < cfg.min_tcp_pkts:
         return None
     if proto == 17 and flow.get("flow_duration_s", 0.0) < 1e-4:
@@ -858,7 +864,6 @@ def process_flow(flow: dict) -> dict | None:
 
     scores, attribution, oor_score = result
 
-    cfg = _cfg_module.cfg
     if scores.composite >= cfg.threshold_critical:
         severity = "CRITICAL"
     elif scores.composite >= cfg.threshold_high:

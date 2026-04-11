@@ -36,8 +36,9 @@ class AppConfig:
 
     # Minimum TCP packet count before a flow is passed to the OIF.
     # Default 4 prevents micro-flows (port scans, SYN floods) from reaching
-    # the detector and poisoning the baseline. Lower to 1 in developer mode
-    # to observe how the OIF scores these flows without permanent effect.
+    # the detector and poisoning the baseline. Lower to 2–3 in developer mode
+    # to observe how the OIF scores these flows. Value of 1 floods the
+    # inference queue during port scans (~1000 simultaneous micro-flows).
     min_tcp_pkts: int = 4
 
     # When True, flows where either endpoint is the Docker bridge gateway
