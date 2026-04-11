@@ -127,16 +127,23 @@ export function AlertDetail({ alert }: Props) {
 function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: number } }) {
   const { t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms, t_infer_ns } = timing
 
-  const ipc_start = t_enqueue_ns || 0
-  if (!ipc_start || !t_socket_ns) return null
-
   const ns2ms = (ns: number) => ns / 1_000_000
+
+  // t_enqueue_ns is only valid if it looks like a real nanosecond timestamp
+  // (> 1e15 ns ≈ year 2001). Old monitor binaries write flag bytes there
+  // (values 1, 257, 65793) which are truthy but not valid timestamps.
+  const NS_PLAUSIBLE = 1_000_000_000_000_000
+  const ipc_start = (t_enqueue_ns && t_enqueue_ns > NS_PLAUSIBLE) ? t_enqueue_ns : null
+
+  if (!t_socket_ns) return null
 
   // Build stages from whatever timestamps are available.
   // New containers emit t_dequeue_ns + t_scored_ns (split queue/OIF).
   // Old containers emit t_infer_ns (combined queue+OIF).
   const stages: [string, number][] = []
-  stages.push(['IPC + decode', ns2ms(t_socket_ns) - ns2ms(ipc_start)])
+  if (ipc_start) {
+    stages.push(['IPC + decode', ns2ms(t_socket_ns) - ns2ms(ipc_start)])
+  }
   if (t_dequeue_ns && t_scored_ns) {
     stages.push(['Queue wait',  ns2ms(t_dequeue_ns) - ns2ms(t_socket_ns)])
     stages.push(['OIF scoring', ns2ms(t_scored_ns)  - ns2ms(t_dequeue_ns)])
@@ -147,9 +154,11 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: 
   if (t_ws_ns && t_browser_ms) {
     stages.push(['WS → browser', t_browser_ms - ns2ms(t_ws_ns)])
   }
+  if (stages.length === 0) return null
+  const pipelineStart = ipc_start ?? t_socket_ns
   const total = t_browser_ms
-    ? t_browser_ms - ns2ms(ipc_start)
-    : ns2ms(lastNs) - ns2ms(ipc_start)
+    ? t_browser_ms - ns2ms(pipelineStart)
+    : ns2ms(lastNs) - ns2ms(pipelineStart)
   const maxStage = Math.max(...stages.map(([, v]) => v), 0.001)  // prevent /0
 
   return (
