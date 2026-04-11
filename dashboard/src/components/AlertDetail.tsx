@@ -1,4 +1,5 @@
 import type { Alert, AttributionEntry, PipelineTiming } from '../types'
+import { FeatureRadar } from './FeatureRadar'
 
 interface Props {
   alert: Alert
@@ -108,6 +109,16 @@ export function AlertDetail({ alert }: Props) {
               <AttributionBar key={entry.feature} entry={entry} />
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Feature radar */}
+      {attribution && attribution.length >= 3 && (
+        <section>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Feature deviation
+          </h3>
+          <FeatureRadar attribution={attribution} severity={verdict.severity} />
         </section>
       )}
 
