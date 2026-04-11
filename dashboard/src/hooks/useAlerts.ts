@@ -1,9 +1,12 @@
-// useAlerts.ts — alert state with TCP/UDP split and a ring buffer capped at 500.
+// useAlerts.ts — alert state with TCP/UDP split and a ring buffer capped at 5 000.
+// A larger ring keeps per-entity counts stable over longer monitoring sessions —
+// at 500 the counts would visibly drop as old alerts were evicted, confusing
+// analysts who don't know about the cap.
 
 import { useCallback, useRef, useState } from 'react'
 import type { Alert, OifMetrics, QueueDepth, WsMessage } from '../types'
 
-const RING_SIZE = 500
+const RING_SIZE = 5_000
 
 const emptyMetrics: OifMetrics = {
   n_seen: 0, n_trained: 0, n_rejected: 0,
@@ -46,7 +49,7 @@ export function useAlerts(): UseAlertsReturn {
   const tsWindowRef = useRef<number[]>([])
 
   const loadHistory = useCallback(() => {
-    fetch('/flows?limit=200')
+    fetch('/flows?limit=2000')
       .then((r) => r.json())
       .then((flows: Alert[]) => {
         if (!flows.length) return

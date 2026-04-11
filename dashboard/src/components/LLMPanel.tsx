@@ -15,22 +15,26 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
   const [question, setQuestion]               = useState('')
   const [feedback, setFeedback]               = useState<Feedback | null>(null)
   const [feedbackPending, setFeedbackPending] = useState(false)
+  const [explaining, setExplaining]           = useState(false)
   const explainId  = `explain-${alert.flow_id}`
   const chatIdRef  = useRef(0)
 
-  // Request explanation when the panel mounts or alert changes.
-  // Also reset feedback state and load any stored feedback for this flow.
+  // Reset UI state and load any stored feedback when the selected alert changes.
+  // Explanation is NOT auto-requested — the analyst triggers it explicitly.
   useEffect(() => {
     setFeedback(null)
     setFeedbackPending(false)
-    if (!llmResponses[explainId]) {
-      send({ type: 'llm_request', request_id: explainId, fn: 'explain', payload: { alert } })
-    }
+    setExplaining(false)
     fetch(`/feedback?flow_id=${alert.flow_id}`)
       .then((r) => r.json())
       .then((rows: Feedback[]) => { if (rows.length) setFeedback(rows[0]) })
       .catch(() => {})
   }, [alert.flow_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleExplain = useCallback(() => {
+    setExplaining(true)
+    send({ type: 'llm_request', request_id: explainId, fn: 'explain', payload: { alert } })
+  }, [alert, explainId, send])
 
   const handleDismiss = useCallback(() => {
     setFeedbackPending(true)
@@ -89,8 +93,15 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
         </h3>
         {explanation ? (
           <p className="text-xs leading-relaxed">{explanation}</p>
-        ) : (
+        ) : explaining ? (
           <p className="text-xs text-muted-foreground italic">Requesting explanation…</p>
+        ) : (
+          <button
+            onClick={handleExplain}
+            className="self-start px-3 py-1.5 rounded bg-muted hover:bg-muted/80 text-xs transition-colors"
+          >
+            Generate explanation
+          </button>
         )}
       </section>
 
