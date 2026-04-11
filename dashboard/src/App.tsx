@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Alert, AppConfig, WsMessage, FeedbackMsg, LlmRequestMsg } from './types'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAlerts } from './hooks/useAlerts'
@@ -9,6 +9,8 @@ import { LLMPanel } from './components/LLMPanel'
 import { ModelHealth } from './components/ModelHealth'
 import { StatsBar } from './components/StatsBar'
 import { SettingsPanel } from './components/SettingsPanel'
+import { EntityList } from './components/EntityList'
+import { NetworkPulse } from './components/NetworkPulse'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 
 // Accumulated LLM responses keyed by request_id — never reset, grows per session
@@ -21,20 +23,27 @@ const DEFAULT_CONFIG: AppConfig = {
 }
 
 function AppInner() {
-  const [tab, setTab] = useState<'TCP' | 'UDP' | 'Health'>('TCP')
-  const [selected, setSelected] = useState<Alert | null>(null)
+  const [tab, setTab]               = useState<'TCP' | 'UDP' | 'Health'>('TCP')
+  const [selected, setSelected]     = useState<Alert | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
-  const [, forceRender] = useState(0)
+  const [config, setConfig]         = useState<AppConfig>(DEFAULT_CONFIG)
+  const [, forceRender]             = useState(0)
+  const [entityFilter, setEntityFilter] = useState<string | null>(null)
+  const [showAll, setShowAll]       = useState(false)
 
   const { theme } = useTheme()
 
-  const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, queueDepth, handleMessage, loadHistory, clearAlerts } = useAlerts()
+  const {
+    tcp, udp, tcpHealth, udpHealth,
+    captureUp, modelsLoaded, baselining, baselineProgress,
+    queueDepth, handleMessage, loadHistory, clearAlerts,
+  } = useAlerts()
 
   const handleClearLogs = () => {
     fetch('/flows', { method: 'DELETE' }).catch(() => {})
     clearAlerts()
     setSelected(null)
+    setEntityFilter(null)
   }
 
   const handleDrainQueue = () => {
@@ -45,7 +54,6 @@ function AppInner() {
     fetch('/config').then(r => r.json()).then(setConfig).catch(() => {})
   }, [])
 
-  // Load the last 200 flows from SQLite on mount so the feed survives page refresh
   useEffect(() => { loadHistory() }, [loadHistory])
 
   const onMessage = (msg: WsMessage) => {
@@ -58,8 +66,24 @@ function AppInner() {
 
   const { connected, send } = useWebSocket(onMessage)
 
+  // Protocol split — all flows for the current tab (fed to EntityList + NetworkPulse)
   const alerts = tab === 'TCP' ? tcp : udp
   const allAlerts = [...tcp, ...udp]
+
+  // Apply entity filter + bucket filter for the feed
+  const feedAlerts = useMemo(() => {
+    let result = alerts
+    if (entityFilter) result = result.filter((a) => a.src_ip === entityFilter)
+    if (!showAll)     result = result.filter((a) => a.verdict.severity !== 'INFO')
+    return result
+  }, [alerts, entityFilter, showAll])
+
+  // Clear entity filter when switching tabs
+  const handleTabChange = (t: 'TCP' | 'UDP' | 'Health') => {
+    setTab(t)
+    setSelected(null)
+    setEntityFilter(null)
+  }
 
   return (
     <div className="flex flex-col h-screen" data-theme={theme}>
@@ -84,7 +108,7 @@ function AppInner() {
         {(['TCP', 'UDP', 'Health'] as const).map((t) => (
           <button
             key={t}
-            onClick={() => { setTab(t); setSelected(null) }}
+            onClick={() => handleTabChange(t)}
             {...(tab === t ? { 'data-active-tab': '' } : {})}
             className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
               tab === t
@@ -106,9 +130,27 @@ function AppInner() {
           </div>
         ) : (
           <>
-            {/* Alert feed — left panel */}
-            <div className="flex-1 overflow-hidden border-r">
-              <AlertFeed alerts={alerts} selected={selected} onSelect={setSelected} />
+            {/* Entity list — narrow left column */}
+            <EntityList
+              alerts={alerts}
+              activeIp={entityFilter}
+              onSelect={(ip) => {
+                setEntityFilter(ip)
+                setSelected(null)
+              }}
+            />
+
+            {/* Feed column: NetworkPulse strip + AlertFeed */}
+            <div className="flex-1 flex flex-col overflow-hidden border-r">
+              <NetworkPulse alerts={alerts} />
+              <AlertFeed
+                alerts={feedAlerts}
+                selected={selected}
+                onSelect={setSelected}
+                showAll={showAll}
+                onToggleShowAll={() => setShowAll((v) => !v)}
+                entityFilter={entityFilter}
+              />
             </div>
 
             {/* Detail + LLM — right panel, shown only when an alert is selected */}
