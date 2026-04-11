@@ -125,9 +125,10 @@ export function AlertDetail({ alert }: Props) {
 }
 
 function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: number } }) {
-  const { flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms, t_infer_ns } = timing
+  const { t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms, t_infer_ns } = timing
 
-  if (!flow_ts_ns || !t_socket_ns) return null
+  const ipc_start = t_enqueue_ns || 0
+  if (!ipc_start || !t_socket_ns) return null
 
   const ns2ms = (ns: number) => ns / 1_000_000
 
@@ -135,7 +136,7 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: 
   // New containers emit t_dequeue_ns + t_scored_ns (split queue/OIF).
   // Old containers emit t_infer_ns (combined queue+OIF).
   const stages: [string, number][] = []
-  stages.push(['IPC + decode', ns2ms(t_socket_ns) - ns2ms(flow_ts_ns)])
+  stages.push(['IPC + decode', ns2ms(t_socket_ns) - ns2ms(ipc_start)])
   if (t_dequeue_ns && t_scored_ns) {
     stages.push(['Queue wait',  ns2ms(t_dequeue_ns) - ns2ms(t_socket_ns)])
     stages.push(['OIF scoring', ns2ms(t_scored_ns)  - ns2ms(t_dequeue_ns)])
@@ -147,8 +148,8 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: 
     stages.push(['WS → browser', t_browser_ms - ns2ms(t_ws_ns)])
   }
   const total = t_browser_ms
-    ? t_browser_ms - ns2ms(flow_ts_ns)
-    : ns2ms(lastNs) - ns2ms(flow_ts_ns)
+    ? t_browser_ms - ns2ms(ipc_start)
+    : ns2ms(lastNs) - ns2ms(ipc_start)
   const maxStage = Math.max(...stages.map(([, v]) => v), 0.001)  // prevent /0
 
   return (

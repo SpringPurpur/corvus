@@ -112,7 +112,7 @@ export function SettingsPanel({ onClose }: Props) {
     }
   }, [])
 
-  const set = (key: keyof AppConfig, val: number) =>
+  const set = (key: keyof AppConfig, val: number | boolean) =>
     setCfg((c) => ({ ...c, [key]: val }))
 
   return (
@@ -371,7 +371,7 @@ export function SettingsPanel({ onClose }: Props) {
                   </div>
                   <input
                     type="range"
-                    min={1} max={10} step={1}
+                    min={2} max={10} step={1}
                     value={cfg.min_tcp_pkts}
                     onChange={(e) => set('min_tcp_pkts', parseInt(e.target.value))}
                     style={{ accentColor: 'var(--color-badge-warn-text)' }}
@@ -379,8 +379,8 @@ export function SettingsPanel({ onClose }: Props) {
                   />
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     Default 4 blocks micro-flows (port scans, SYN floods) from reaching
-                    the OIF. Set to 1 to observe how the detector scores 2–3 packet flows.
-                    <span className="font-medium" style={{ color: 'var(--color-badge-warn-text)' }}> Poisoning risk at low values.</span>
+                    the OIF. Set to 2–3 to observe how the detector scores these flows.
+                    <span className="font-medium" style={{ color: 'var(--color-badge-warn-text)' }}> Value of 1 floods the inference queue — port scans generate ~1000 flows at once. Poisoning risk at low values.</span>
                   </p>
                 </div>
 
@@ -391,7 +391,7 @@ export function SettingsPanel({ onClose }: Props) {
                       Filter gateway traffic
                     </span>
                     <button
-                      onClick={() => set('filter_gateway', cfg.filter_gateway ? 0 : 1)}
+                      onClick={() => set('filter_gateway', !cfg.filter_gateway)}
                       className="flex items-center gap-1.5 text-xs transition-colors"
                       style={{ color: cfg.filter_gateway ? 'var(--color-badge-warn-text)' : undefined }}
                     >
