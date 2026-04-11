@@ -52,6 +52,22 @@ def _get(url: str) -> dict:
         return json.loads(r.read())
 
 
+def _post_json(url: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
+def _patch_json(url: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="PATCH",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
 def _get_flows(
     api: str,
     src_ip: str | None = None,
@@ -96,6 +112,62 @@ def _get_ts_offset(api: str) -> float:
 
 
 # -- Baseline waiting --
+
+def wait_for_queue_empty(api: str, timeout_s: int = 60, label: str = "pre-attack") -> None:
+    """Block until the inference queue depth is zero (or timeout).
+
+    Used twice:
+      1. After baseline completes but BEFORE attack starts — ensures no overflow
+         baseline flows are in the queue when the attack begins.
+      2. After attack + monitor_s — ensures all attack flows are processed before
+         we query the DB for metrics.
+    """
+    deadline = time.time() + timeout_s
+    print(f"\n[queue] Waiting for inference queue to drain ({label})...")
+    prev_depth = None
+    while time.time() < deadline:
+        try:
+            stats = _get_stats(api)
+            depth = stats.get("queue_depth", {}).get("total", None)
+        except Exception:
+            time.sleep(1)
+            continue
+        if depth is None:
+            # Old inference without queue_depth — skip drain wait
+            print("[queue] queue_depth not available in /stats — skipping drain wait")
+            return
+        if depth != prev_depth:
+            print(f"  [queue] depth={depth}")
+            prev_depth = depth
+        if depth == 0:
+            print(f"[queue] Queue empty ({label}).\n")
+            return
+        time.sleep(1)
+    print(f"[queue] WARNING: queue did not drain within {timeout_s}s — proceeding anyway.")
+
+
+def open_phase(api: str, run_id: str, scenario: str, phase: str,
+               t_start: float, attacker_ip: str | None = None) -> int:
+    """POST /phases — record phase start, return phase_id."""
+    try:
+        body = {"run_id": run_id, "scenario": scenario, "phase": phase,
+                "t_start": t_start, "attacker_ip": attacker_ip}
+        resp = _post_json(f"{api}/phases", body)
+        return resp.get("phase_id", -1)
+    except Exception as e:
+        print(f"[phase] WARNING: could not record phase start: {e}")
+        return -1
+
+
+def close_phase(api: str, phase_id: int, t_end: float) -> None:
+    """PATCH /phases/{id} — set t_end."""
+    if phase_id < 0:
+        return
+    try:
+        _patch_json(f"{api}/phases/{phase_id}", {"t_end": t_end})
+    except Exception as e:
+        print(f"[phase] WARNING: could not close phase {phase_id}: {e}")
+
 
 def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict:
     """Poll /stats until both required detectors report is_ready=true."""
@@ -353,8 +425,16 @@ def main() -> None:
     # container; on Windows/WSL2 this can diverge from host time.time().
     ts_offset = _get_ts_offset(args.api)
 
+    # run_id ties all phase records for this scenario run together.
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + scenario_path.stem
+
     # -- Baseline --
+    baseline_phase_id = -1
     if not args.no_baseline and baseline_cfg.get("auto_baseline", False):
+        baseline_phase_id = open_phase(
+            args.api, run_id, scenario["name"], "baseline",
+            t_start=time.time(), attacker_ip=None,
+        )
         trigger_fast_baseline()
 
     stats_before = {}
@@ -367,6 +447,16 @@ def main() -> None:
         except Exception:
             stats_before = {"tcp": {}, "udp": {}}
 
+    # Close baseline phase record now that OIF is ready.
+    close_phase(args.api, baseline_phase_id, t_end=time.time())
+
+    # Drain any overflow baseline flows from the queue before the attack starts.
+    # fast_baseline.sh generates slightly more flows than the 4096 target so the
+    # OIF reaches ready before the script finishes. Those overflow flows sit in
+    # the inference queue and would be scored during the attack window, inflating
+    # the FPR measurement. Waiting for queue_depth==0 prevents this.
+    wait_for_queue_empty(args.api, timeout_s=60, label="pre-attack queue drain")
+
     # -- Run attack(s) --
     phases = scenario.get("phases") or [scenario.get("attack", {})]
     all_phases: list[dict] = []
@@ -378,8 +468,15 @@ def main() -> None:
         pargs  = phase.get("args", [])
         name   = phase.get("name", "Attack")
 
+        attack_phase_id = open_phase(
+            args.api, run_id, scenario["name"], "attack",
+            t_start=time.time(), attacker_ip=attacker_ip,
+        )
         t_start, t_end = run_phase(container, script, pargs, phase_name=name)
-        all_phases.append({"name": name, "script": script, "t_start": t_start, "t_end": t_end})
+        close_phase(args.api, attack_phase_id, t_end=t_end)
+        all_phases.append({"name": name, "script": script,
+                           "t_start": t_start, "t_end": t_end,
+                           "phase_id": attack_phase_id})
 
         rest = phase.get("rest_s", 0)
         if rest and phase is not phases[-1]:
@@ -391,9 +488,14 @@ def main() -> None:
     t_attack_end   = all_phases[-1]["t_end"]
 
     # -- Recovery monitoring --
+    recovery_phase_id = open_phase(
+        args.api, run_id, scenario["name"], "recovery",
+        t_start=t_attack_end, attacker_ip=None,
+    )
     if monitor_s > 0:
         print(f"\n[recovery] Monitoring for {monitor_s}s...")
         time.sleep(monitor_s)
+    close_phase(args.api, recovery_phase_id, t_end=time.time())
 
     # -- Wait for ring buffer to drain before querying --
     # The SYN flood (and any pre-existing ring buffer backlog) causes flows to
@@ -532,13 +634,20 @@ def main() -> None:
     ]
 
     # Latency percentiles from flows that have timing data.
-    # All three segments require non-zero timestamps to be valid.
+    # t_enqueue_ns is set by ipc_writer_enqueue() — the correct IPC start time.
+    # Falls back to flow_ts_ns (legacy) if t_enqueue_ns is absent or zero.
     def _has(*keys):
         return lambda f: (f.get("timing") and
                           all(f["timing"].get(k, 0) > 0 for k in keys))
 
-    ipc_vals   = [(f["timing"]["t_socket_ns"]  - f["timing"]["flow_ts_ns"])  / 1e6
-                  for f in window_flows if _has("t_socket_ns",  "flow_ts_ns")(f)]
+    def _ipc_start(f: dict) -> int:
+        t = f.get("timing", {})
+        return t.get("t_enqueue_ns") or t.get("flow_ts_ns") or 0
+
+    ipc_vals   = [(f["timing"]["t_socket_ns"] - _ipc_start(f)) / 1e6
+                  for f in window_flows
+                  if f.get("timing") and f["timing"].get("t_socket_ns", 0) > 0
+                  and _ipc_start(f) > 0]
     queue_vals = [(f["timing"]["t_dequeue_ns"] - f["timing"]["t_socket_ns"]) / 1e6
                   for f in window_flows if _has("t_dequeue_ns", "t_socket_ns")(f)]
     oif_vals   = [(f["timing"]["t_scored_ns"]  - f["timing"]["t_dequeue_ns"])/ 1e6
@@ -559,6 +668,7 @@ def main() -> None:
 
     result = {
         "type":              "scenario",
+        "run_id":            run_id,
         "scenario":          scenario["name"],
         "scenario_file":     str(scenario_path),
         "run_at":            t_attack_start,
@@ -570,9 +680,13 @@ def main() -> None:
         "metrics":           metrics,
         "top_attack_flows":  top_flows_slim,
         "latency_ms": {
-            "ipc_decode":  _pcts(ipc_vals),    # last_pkt_ns -> t_socket_ns
-            "queue_wait":  _pcts(queue_vals),  # t_socket_ns -> t_dequeue_ns (pure queue depth)
-            "oif_score":   _pcts(oif_vals),    # t_dequeue_ns -> t_scored_ns (Cython speedup)
+            # ipc_decode: t_enqueue_ns (C ring) → t_socket_ns (Python decode).
+            # True wire+decode latency — microseconds, not flow lifetime.
+            "ipc_decode":  _pcts(ipc_vals),
+            # queue_wait:  t_socket_ns → t_dequeue_ns — pure asyncio queue depth.
+            "queue_wait":  _pcts(queue_vals),
+            # oif_score:   t_dequeue_ns → t_scored_ns — Isolation Forest scoring.
+            "oif_score":   _pcts(oif_vals),
         },
         "stats_before":      stats_before,
         "stats_after":       stats_after,

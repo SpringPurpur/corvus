@@ -24,9 +24,10 @@ MY_IP=$(hostname -I | awk '{print $1}')
 TARGETS=$(echo "$NODES" | tr ' ' '\n' | grep -vF "${MY_IP}" | paste -sd ' ')
 [ -z "$TARGETS" ] && TARGETS="$NODES"   # fallback if hostname -I fails
 
-TCP_COUNT=${1:-1100}   # 1100 flows per node × 5 nodes, all to OTHER nodes (self
-                       # excluded) → 5500 through-bridge flows; ~5-10% filtered
-                       # by tot_pkts<4 check → ~5000 reach the buffer > 4096 target
+TCP_COUNT=${1:-820}    # 820 flows per node × 5 nodes = 4100 through-bridge flows;
+                       # ~5-10% filtered by tot_pkts<4 → ~3900-4000 reach OIF.
+                       # Slightly under the 4096 target so we don't overshoot into
+                       # the attack window. normal_traffic.sh supplies the last ~100.
 UDP_COUNT=${2:-250}    # ~250 flows per node × 5 nodes > 1024 UDP baseline
 SSH_COUNT=${3:-20}     # 20 SSH sessions per node × 5 nodes = 100 SSH flows in the
                        # initial training set. Without this, the first 4096 flows
