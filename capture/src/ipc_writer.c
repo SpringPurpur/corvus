@@ -21,6 +21,14 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <stdatomic.h>
+#include <time.h>
+
+static uint64_t _enqueue_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
 
 /* ── Ring buffer ─────────────────────────────────────────────────────────── */
 
@@ -166,6 +174,10 @@ void ipc_writer_enqueue(const flow_record_t *flow)
     uint32_t slot = head & (IPC_RING_CAPACITY - 1);
     // Copy before updating head — ensures the sender sees a complete record
     ring[slot] = *flow;
+    // Stamp enqueue time on the ring slot copy. This is the correct IPC-start
+    // timestamp: t_socket_ns - t_enqueue_ns = actual wire+decode latency (~µs).
+    // Using first_pkt_ns instead would include the full flow lifetime.
+    ring[slot].t_enqueue_ns = _enqueue_ns();
     // Atomic store with release semantics so the write above is visible
     // to the sender thread before it reads the updated head
     atomic_store_explicit(&ring_head, head + 1, memory_order_release);

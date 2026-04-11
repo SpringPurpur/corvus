@@ -55,12 +55,23 @@ def init_db() -> None:
             score_oor    REAL,
             attribution  TEXT,
             shap         TEXT,
-            flow_ts_ns    INTEGER,
+            t_enqueue_ns  INTEGER,
             t_socket_ns   INTEGER,
             t_infer_ns    INTEGER,
             t_dequeue_ns  INTEGER,
             t_scored_ns   INTEGER
         );
+        CREATE TABLE IF NOT EXISTS phases (
+            id           INTEGER PRIMARY KEY,
+            run_id       TEXT    NOT NULL,
+            scenario     TEXT    NOT NULL,
+            phase        TEXT    NOT NULL CHECK(phase IN ('baseline','attack','benign','recovery')),
+            t_start      REAL    NOT NULL,
+            t_end        REAL,
+            attacker_ip  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_phases_run    ON phases(run_id);
+        CREATE INDEX IF NOT EXISTS idx_phases_t      ON phases(t_start, t_end);
         CREATE INDEX IF NOT EXISTS idx_ts     ON flows(ts);
         CREATE INDEX IF NOT EXISTS idx_src_ip ON flows(src_ip);
         CREATE INDEX IF NOT EXISTS idx_proto  ON flows(proto);
@@ -85,14 +96,19 @@ def init_db() -> None:
         _conn.execute("ALTER TABLE flows ADD COLUMN score_oor REAL")
         log.info("Migrated flows table: added score_oor column")
     if "flow_ts_ns" not in cols:
+        # Legacy: flow_ts_ns was last_pkt_ns (includes flow lifetime, not IPC time).
+        # Kept for backward compatibility on existing DBs; new rows use t_enqueue_ns.
         _conn.execute("ALTER TABLE flows ADD COLUMN flow_ts_ns INTEGER")
         _conn.execute("ALTER TABLE flows ADD COLUMN t_socket_ns INTEGER")
         _conn.execute("ALTER TABLE flows ADD COLUMN t_infer_ns INTEGER")
-        log.info("Migrated flows table: added timing columns")
+        log.info("Migrated flows table: added legacy timing columns")
     if "t_dequeue_ns" not in cols:
         _conn.execute("ALTER TABLE flows ADD COLUMN t_dequeue_ns INTEGER")
         _conn.execute("ALTER TABLE flows ADD COLUMN t_scored_ns  INTEGER")
         log.info("Migrated flows table: added t_dequeue_ns / t_scored_ns columns")
+    if "t_enqueue_ns" not in cols:
+        _conn.execute("ALTER TABLE flows ADD COLUMN t_enqueue_ns INTEGER")
+        log.info("Migrated flows table: added t_enqueue_ns column (true IPC start time)")
     _conn.commit()
     log.info("SQLite DB ready at %s", DB_PATH)
 
@@ -117,7 +133,7 @@ def insert_flow(alert: dict) -> None:
                      label, severity, confidence,
                      score_fast, score_medium, score_slow, score_comp, score_oor,
                      attribution, shap,
-                     flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns)
+                     t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
@@ -130,7 +146,7 @@ def insert_flow(alert: dict) -> None:
                     s.get("oor"),
                     json.dumps(alert.get("attribution", [])),
                     json.dumps(alert.get("shap", [])),
-                    t.get("flow_ts_ns"), t.get("t_socket_ns"),
+                    t.get("t_enqueue_ns"), t.get("t_socket_ns"),
                     t.get("t_dequeue_ns"), t.get("t_scored_ns"),
                 ),
             )
@@ -147,6 +163,47 @@ def clear_flows() -> int:
         cur = _conn.execute("DELETE FROM flows")
         _conn.commit()
         return cur.rowcount
+
+
+def write_phase(run_id: str, scenario: str, phase: str,
+                t_start: float, attacker_ip: str | None = None) -> int:
+    """Open a new phase row and return its id. Call close_phase() when done."""
+    if _conn is None:
+        return -1
+    with _write_lock:
+        cur = _conn.execute(
+            "INSERT INTO phases (run_id, scenario, phase, t_start, attacker_ip) "
+            "VALUES (?,?,?,?,?)",
+            (run_id, scenario, phase, t_start, attacker_ip),
+        )
+        _conn.commit()
+        return cur.lastrowid
+
+
+def close_phase(phase_id: int, t_end: float) -> None:
+    """Set t_end on an open phase row."""
+    if _conn is None or phase_id < 0:
+        return
+    with _write_lock:
+        _conn.execute(
+            "UPDATE phases SET t_end=? WHERE id=?", (t_end, phase_id)
+        )
+        _conn.commit()
+
+
+def query_phases(run_id: str | None = None) -> list[dict]:
+    """Return phase rows, optionally filtered by run_id."""
+    if _conn is None:
+        return []
+    sql = "SELECT id, run_id, scenario, phase, t_start, t_end, attacker_ip FROM phases"
+    params: list = []
+    if run_id:
+        sql += " WHERE run_id=?"
+        params.append(run_id)
+    sql += " ORDER BY t_start"
+    rows = _conn.execute(sql, params).fetchall()
+    keys = ("id", "run_id", "scenario", "phase", "t_start", "t_end", "attacker_ip")
+    return [dict(zip(keys, r)) for r in rows]
 
 
 def query_flows(
@@ -203,7 +260,7 @@ def query_flows(
                    label, severity, confidence,
                    score_fast, score_medium, score_slow, score_comp, score_oor,
                    attribution, shap,
-                   flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns
+                   t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns
             FROM flows
             {where}
             ORDER BY ts DESC
@@ -283,7 +340,7 @@ def _row_to_alert(row: tuple) -> dict:
      label, severity, confidence,
      fast, medium, slow, comp, oor,
      attribution_json, shap_json,
-     flow_ts_ns, t_socket_ns, t_dequeue_ns, t_scored_ns) = row
+     t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns) = row
 
     return {
         "flow_id":     flow_id,
@@ -312,9 +369,9 @@ def _row_to_alert(row: tuple) -> dict:
         "score_comp":  comp,
         "attribution": json.loads(attribution_json or "[]"),
         "timing": {
-            "flow_ts_ns":   flow_ts_ns,
-            "t_socket_ns":  t_socket_ns,
-            "t_dequeue_ns": t_dequeue_ns,
-            "t_scored_ns":  t_scored_ns,
+            "t_enqueue_ns":  t_enqueue_ns,   # C ring enqueue — true IPC start
+            "t_socket_ns":   t_socket_ns,
+            "t_dequeue_ns":  t_dequeue_ns,
+            "t_scored_ns":   t_scored_ns,
         },
     }

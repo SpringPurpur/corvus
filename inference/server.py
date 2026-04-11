@@ -37,13 +37,21 @@ app.add_middleware(
 # Injected by main.py after startup so WebSocket handler can call LLM functions
 _llm_handler = None
 _alert_queue: asyncio.Queue | None = None
+# Thread queues exposed for /stats queue_depth — set by configure()
+_tcp_queue = None
+_udp_queue = None
+_flow_queue = None
 
 
-def configure(alert_queue: asyncio.Queue, llm_handler) -> None:
+def configure(alert_queue: asyncio.Queue, llm_handler,
+              tcp_queue=None, udp_queue=None, flow_queue=None) -> None:
     """Called once from main.py before uvicorn starts."""
-    global _alert_queue, _llm_handler
+    global _alert_queue, _llm_handler, _tcp_queue, _udp_queue, _flow_queue
     _alert_queue = alert_queue
     _llm_handler = llm_handler
+    _tcp_queue   = tcp_queue
+    _udp_queue   = udp_queue
+    _flow_queue  = flow_queue
 
 
 @app.get("/health")
@@ -98,10 +106,50 @@ async def reset_baseline(protocol: str = Query(default="all")) -> dict:
 @app.get("/stats")
 async def get_stats() -> dict:
     from online_detector import tcp_detector, udp_detector
+    tcp_q = _tcp_queue.qsize()  if _tcp_queue  is not None else None
+    udp_q = _udp_queue.qsize()  if _udp_queue  is not None else None
+    flow_q = _flow_queue.qsize() if _flow_queue is not None else None
     return {
-        "tcp": tcp_detector.metrics() | {"ready": tcp_detector.is_ready},
-        "udp": udp_detector.metrics() | {"ready": udp_detector.is_ready},
+        "tcp":  tcp_detector.metrics()  | {"ready": tcp_detector.is_ready},
+        "udp":  udp_detector.metrics()  | {"ready": udp_detector.is_ready},
+        "queue_depth": {
+            "tcp":  tcp_q,
+            "udp":  udp_q,
+            "flow": flow_q,
+            "total": (tcp_q or 0) + (udp_q or 0) + (flow_q or 0),
+        },
     }
+
+
+class PhaseOpenBody(BaseModel):
+    run_id:      str
+    scenario:    str
+    phase:       str   # baseline | attack | benign | recovery
+    t_start:     float
+    attacker_ip: Optional[str] = None
+
+class PhaseCloseBody(BaseModel):
+    t_end: float
+
+@app.post("/phases")
+async def open_phase(body: PhaseOpenBody) -> dict:
+    """Record the start of an eval phase. Returns the phase row id."""
+    phase_id = await run_in_threadpool(
+        storage.write_phase,
+        body.run_id, body.scenario, body.phase, body.t_start, body.attacker_ip,
+    )
+    return {"phase_id": phase_id}
+
+@app.patch("/phases/{phase_id}")
+async def close_phase(phase_id: int, body: PhaseCloseBody) -> dict:
+    """Set t_end on an open phase row."""
+    await run_in_threadpool(storage.close_phase, phase_id, body.t_end)
+    return {"ok": True}
+
+@app.get("/phases")
+async def get_phases(run_id: Optional[str] = None) -> list:
+    """Return phase records, optionally filtered by run_id."""
+    return await run_in_threadpool(storage.query_phases, run_id)
 
 
 @app.get("/baseline/stats")

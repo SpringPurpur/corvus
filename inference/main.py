@@ -187,7 +187,8 @@ async def _run(args: argparse.Namespace) -> None:
     if args.anomaly_only:
         log.warning("Running in anomaly-only mode — classification models not loaded")
 
-    configure(alert_queue, llm)
+    configure(alert_queue, llm,
+              tcp_queue=tcp_queue, udp_queue=udp_queue, flow_queue=flow_queue)
 
     # Thread 1 — Unix socket server
     threading.Thread(

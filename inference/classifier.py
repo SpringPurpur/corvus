@@ -217,20 +217,20 @@ class Classifier:
             "scores":      result["scores"],       # fast/medium/slow/composite
             "attribution": result["attribution"],  # top-3 OIF path-depth attribution
             # Pipeline latency timestamps (nanoseconds, CLOCK_REALTIME)
-            # flow_ts_ns  : last_pkt_ns  — when C engine completed the flow
-            # t_socket_ns : time after ctypes decode in socket_reader
-            # t_dequeue_ns: time when protocol worker dequeued the flow
-            # t_scored_ns : time after OIF scoring completes
+            # t_enqueue_ns : when C ipc_writer_enqueue() copied flow to ring buffer
+            # t_socket_ns  : when Python ctypes-decoded the flow from the socket
+            # t_dequeue_ns : when the protocol worker dequeued the flow
+            # t_scored_ns  : when OIF scoring completed
             #
             # Derived latencies:
-            #   ipc_ms    = (t_socket_ns  - flow_ts_ns)  / 1e6  — IPC transfer + decode
-            #   queue_ms  = (t_dequeue_ns - t_socket_ns) / 1e6  — Python queue wait
-            #   oif_ms    = (t_scored_ns  - t_dequeue_ns)/ 1e6  — OIF scoring time
+            #   ipc_ms    = (t_socket_ns  - t_enqueue_ns) / 1e6  — true IPC wire+decode
+            #   queue_ms  = (t_dequeue_ns - t_socket_ns)  / 1e6  — Python asyncio queue wait
+            #   oif_ms    = (t_scored_ns  - t_dequeue_ns) / 1e6  — OIF scoring time
             "_timing": {
-                "flow_ts_ns":   flow.get("last_pkt_ns", 0),
-                "t_socket_ns":  flow.get("t_socket_ns", 0),
-                "t_dequeue_ns": flow.get("_t_dequeue_ns", 0),
-                "t_scored_ns":  t_scored_ns,
+                "t_enqueue_ns":  flow.get("t_enqueue_ns", 0),
+                "t_socket_ns":   flow.get("t_socket_ns", 0),
+                "t_dequeue_ns":  flow.get("_t_dequeue_ns", 0),
+                "t_scored_ns":   t_scored_ns,
             },
         }
 

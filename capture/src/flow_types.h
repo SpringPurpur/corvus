@@ -81,13 +81,19 @@ typedef struct {
     uint64_t   last_pkt_ns_for_iat;    // timestamp of previous packet (any direction)
     uint64_t   last_fwd_pkt_ns;        // timestamp of previous fwd packet
 
+    // ── pipeline timing ──────────────────────────────────────────────────────
+    // t_enqueue_ns: wall-clock nanoseconds when the flow was copied into the
+    // IPC ring buffer by ipc_writer_enqueue(). This is the correct "IPC start"
+    // timestamp — subtracting first_pkt_ns gives flow lifetime, not IPC latency.
+    // True IPC transfer time = Python t_socket_ns - t_enqueue_ns (microseconds).
+    uint64_t   t_enqueue_ns;  // set in ipc_writer_enqueue() after ring copy
+
     // ── state flags ──────────────────────────────────────────────────────────
     uint8_t    complete;
     // Forward direction is defined by the first packet seen, not key normalisation.
     // fwd_is_lower_ip=1 means the lower-IP side sent the first packet.
     uint8_t    fwd_is_lower_ip;
     uint8_t    init_win_captured;      // set to 1 after first fwd SYN window recorded
-    uint8_t    _pad[9];   // increased from 5 → 9 to keep sizeof 8-byte aligned
-                          // after adding 3 float fields (12 bytes) above.
+    uint8_t    _pad[1];   // reduced from 9 → 1: 8 bytes moved to t_enqueue_ns above.
                           // sizeof(flow_record_t) = 6352. Update Python ctypes to match.
 } flow_record_t;

@@ -106,11 +106,15 @@ class FlowRecord(ctypes.Structure):
         ("last_pkt_ns_for_iat",    ctypes.c_uint64),
         ("last_fwd_pkt_ns",        ctypes.c_uint64),
 
+        # pipeline timing — set by ipc_writer_enqueue() on the ring slot copy,
+        # NOT at flow creation. t_socket_ns - t_enqueue_ns = true IPC transfer time.
+        ("t_enqueue_ns",       ctypes.c_uint64),
+
         # state
         ("complete",           ctypes.c_uint8),
         ("fwd_is_lower_ip",    ctypes.c_uint8),
         ("init_win_captured",  ctypes.c_uint8),
-        ("_pad8",              ctypes.c_uint8 * 9),   # increased 5→9 to match C struct
+        ("_pad8",              ctypes.c_uint8 * 1),   # reduced 9→1: 8 bytes moved to t_enqueue_ns
     ]
 
 
@@ -166,6 +170,9 @@ def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
         # capture timestamps — nanoseconds since Unix epoch (C CLOCK_REALTIME)
         "first_pkt_ns":      r.first_pkt_ns,
         "last_pkt_ns":       r.last_pkt_ns,
+        # IPC ring enqueue time — set by ipc_writer_enqueue() after copying the
+        # flow into the ring buffer. t_socket_ns - t_enqueue_ns = true IPC latency.
+        "t_enqueue_ns":      r.t_enqueue_ns,
     }
 
 
