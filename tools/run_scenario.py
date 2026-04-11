@@ -85,6 +85,12 @@ def _get_flows(
     return _get(url)
 
 
+def _delete(url: str) -> dict:
+    req = urllib.request.Request(url, data=b"", method="DELETE")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
 def _get_stats(api: str) -> dict:
     return _get(f"{api}/stats")
 
@@ -459,12 +465,21 @@ def main() -> None:
     # Close baseline phase record now that OIF is ready.
     close_phase(args.api, baseline_phase_id, t_end=time.time())
 
-    # Drain any overflow baseline flows from the queue before the attack starts.
-    # fast_baseline.sh generates slightly more flows than the 4096 target so the
-    # OIF reaches ready before the script finishes. Those overflow flows sit in
-    # the inference queue and would be scored during the attack window, inflating
-    # the FPR measurement. Waiting for queue_depth==0 prevents this.
-    wait_for_queue_empty(args.api, timeout_s=60, label="pre-attack queue drain")
+    # After baseline is ready, atomically clear the inference queue before the
+    # attack starts. This is faster and more reliable than polling for drain —
+    # DELETE /queue discards all pending flows instantly so the attack window
+    # starts with a clean slate. Any baseline overflow flows that were in the
+    # queue are intentionally discarded here; only attack-window flows matter.
+    try:
+        qd = _delete(f"{args.api}/queue")
+        dropped = qd.get("dropped", {})
+        total_dropped = sum(dropped.values()) if isinstance(dropped, dict) else 0
+        if total_dropped:
+            print(f"[queue] Cleared inference queue: {total_dropped} pre-attack flows discarded.")
+        else:
+            print("[queue] Inference queue already empty — clean start.")
+    except Exception as e:
+        print(f"[queue] WARNING: could not clear queue: {e}")
 
     # -- Run attack(s) --
     phases = scenario.get("phases") or [scenario.get("attack", {})]
@@ -496,25 +511,23 @@ def main() -> None:
     t_attack_start = all_phases[0]["t_start"]
     t_attack_end   = all_phases[-1]["t_end"]
 
-    # -- Recovery monitoring --
+    # -- Post-attack wait then queue drain --
+    # monitor_s: time to wait for attack effects to play out before querying.
+    # Used by scenarios where the C engine needs time to finalize flows, e.g.:
+    #   - SYN flood (hping3 --syn -k): single flow with 120s idle timeout.
+    #     monitor_s=150 ensures the flow is finalized and in the IPC ring before
+    #     we drain the queue.
+    # After the wait, poll queue_depth until zero — all flows scored and in DB.
     recovery_phase_id = open_phase(
         args.api, run_id, scenario["name"], "recovery",
         t_start=t_attack_end, attacker_ip=None,
     )
     if monitor_s > 0:
-        print(f"\n[recovery] Monitoring for {monitor_s}s...")
+        print(f"\n[recovery] Waiting {monitor_s}s for flows to finalize and reach queue...")
         time.sleep(monitor_s)
     close_phase(args.api, recovery_phase_id, t_end=time.time())
 
-    # -- Wait for inference queue to drain before querying --
-    # Flows are written to SQLite only after being processed by a protocol worker.
-    # For flood attacks this is fine — the queue drains quickly at ~1 ms/flow.
-    # For SYN flood specifically, the C engine holds the single massive flow in its
-    # table for 120 s after the last packet (idle timeout), then sends it to Python.
-    # monitor_s=150 guarantees the flow has been sent, but it still needs to pass
-    # through the inference queue. Polling queue_depth.total == 0 is the only
-    # reliable signal that all flows have been scored and written to the DB.
-    wait_for_queue_empty(args.api, timeout_s=180, label="post-recovery drain")
+    wait_for_queue_empty(args.api, timeout_s=180, label="post-attack drain")
 
     stats_after = _get_stats(args.api)
 
@@ -545,15 +558,28 @@ def main() -> None:
         attacker_in_window = [f for f in window_flows if _involves_attacker(f, attacker_ip)]
         if attacker_in_window:
             print(f"[report] Attacker flows in window: {len(attacker_in_window)}")
+            if attacker_port is not None:
+                port_match = [f for f in attacker_in_window
+                              if f.get("src_port") == attacker_port
+                              or f.get("dst_port") == attacker_port]
+                print(f"[report]   With port={attacker_port} filter: {len(port_match)}")
         else:
             # No attacker flows in window — check unconstrained DB for attacker flows
             attacker_all = [f for f in db_all if _involves_attacker(f, attacker_ip)]
-            print(f"[report] WARNING: 0 attacker flows in window. "
-                  f"Attacker flows in full DB: {len(attacker_all)}")
             if attacker_all:
                 ts_vals = [f["ts"] for f in attacker_all]
-                print(f"[report]   attacker ts range: [{min(ts_vals):.3f}, {max(ts_vals):.3f}]  "
-                      f"(window: [{window_start:.3f}, {window_end:.3f}])")
+                print(f"[report] WARNING: 0 attacker flows in window "
+                      f"[{window_start:.0f}, {window_end:.0f}].")
+                print(f"[report]   Attacker flows in full DB: {len(attacker_all)}  "
+                      f"ts=[{min(ts_vals):.3f}, {max(ts_vals):.3f}]")
+                print(f"[report]   Sample: src_ip={attacker_all[0].get('src_ip')}  "
+                      f"dst_ip={attacker_all[0].get('dst_ip')}  "
+                      f"src_port={attacker_all[0].get('src_port')}  "
+                      f"dst_port={attacker_all[0].get('dst_port')}")
+            else:
+                print(f"[report] WARNING: attacker IP {attacker_ip} not found in DB at all "
+                      f"(DB has {len(db_all)} flows total). "
+                      f"Flow may still be in C engine ring — check monitor_s.")
     except Exception as e:
         print(f"[report] WARNING: could not query flows: {e}")
         window_flows = []
@@ -610,9 +636,18 @@ def main() -> None:
         return lambda f: (f.get("timing") and
                           all(f["timing"].get(k, 0) > 0 for k in keys))
 
+    # t_enqueue_ns is only valid if it looks like a real nanosecond timestamp
+    # (> 1e15 ns = year 2001+). Old monitor binaries write flag bytes there
+    # (values 1, 257, 65537), which pass the > 0 guard but produce garbage IPC ms.
+    _NS_PLAUSIBLE = 1_000_000_000_000_000  # 1e15 ns = ~year 2001
+
     def _ipc_start(f: dict) -> int:
         t = f.get("timing", {})
-        return t.get("t_enqueue_ns") or t.get("flow_ts_ns") or 0
+        enqueue = t.get("t_enqueue_ns", 0) or 0
+        if enqueue > _NS_PLAUSIBLE:
+            return enqueue
+        flow_ts = t.get("flow_ts_ns", 0) or 0
+        return flow_ts if flow_ts > _NS_PLAUSIBLE else 0
 
     ipc_vals   = [(f["timing"]["t_socket_ns"] - _ipc_start(f)) / 1e6
                   for f in window_flows
