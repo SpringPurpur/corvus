@@ -101,7 +101,7 @@ def reset(api: str) -> None:
 
 # -- DB snapshot --
 
-def snapshot_db(run_dir: Path, ts_str: str) -> None:
+def snapshot_db(run_dir: Path, slug: str) -> None:
     """Copy flows.db from the inference container into the run directory.
 
     Uses 'docker ps' to locate the running inference container by name, then
@@ -109,7 +109,7 @@ def snapshot_db(run_dir: Path, ts_str: str) -> None:
     container is not found the step is skipped with a warning — the eval
     results JSON files are still intact.
     """
-    dest = run_dir / f"flows_{ts_str}.db"
+    dest = run_dir / f"flows_{slug}.db"
     try:
         ps = subprocess.run(
             ["docker", "--context", "default", "ps",
@@ -327,6 +327,9 @@ def main() -> None:
             })
             print(f"[eval_all] WARNING: no result collected for {yml_path.name}")
 
+        # Snapshot DB before the next reset so each scenario's flows are preserved.
+        snapshot_db(run_dir, yml_path.stem)
+
     # -- Summary --
     print_comparison(baseline_result, scenario_results)
 
@@ -345,8 +348,6 @@ def main() -> None:
     out_path.write_text(json.dumps(summary, indent=2))
     print(f"\n  Full summary saved to: {out_path}")
     print(f"  Run directory        : {run_dir}\n")
-
-    snapshot_db(run_dir, ts_str)
 
 
 if __name__ == "__main__":
