@@ -75,11 +75,18 @@ export interface OifMetrics {
   ready:          boolean  // baseline complete
 }
 
+export interface QueueDepth {
+  tcp:   number
+  udp:   number
+  flow:  number
+  total: number
+}
+
 // WebSocket downstream message union
 export type WsMessage =
   | { type: 'alert'; data: Alert }
   | { type: 'status'; capture: boolean; models: boolean; baselining?: boolean; progress?: number; protocol?: string }
-  | { type: 'stats'; tcp: OifMetrics; udp: OifMetrics }
+  | { type: 'stats'; tcp: OifMetrics; udp: OifMetrics; queue_depth?: QueueDepth }
   | { type: 'llm_response'; request_id: string; text: string }
 
 // WebSocket upstream messages

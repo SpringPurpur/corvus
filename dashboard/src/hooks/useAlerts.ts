@@ -1,7 +1,7 @@
 // useAlerts.ts — alert state with TCP/UDP split and a ring buffer capped at 500.
 
 import { useCallback, useRef, useState } from 'react'
-import type { Alert, OifMetrics, WsMessage } from '../types'
+import type { Alert, OifMetrics, QueueDepth, WsMessage } from '../types'
 
 const RING_SIZE = 500
 
@@ -20,6 +20,7 @@ interface AlertState {
   baselineProgress: number
   tcpHealth: OifMetrics
   udpHealth: OifMetrics
+  queueDepth: QueueDepth
 }
 
 interface UseAlertsReturn extends AlertState {
@@ -38,6 +39,7 @@ export function useAlerts(): UseAlertsReturn {
     baselineProgress: 0,
     tcpHealth: emptyMetrics,
     udpHealth: emptyMetrics,
+    queueDepth: { tcp: 0, udp: 0, flow: 0, total: 0 },
   })
 
   // Track per-minute alert count using a sliding timestamp window
@@ -84,7 +86,12 @@ export function useAlerts(): UseAlertsReturn {
       return
     }
     if (msg.type === 'stats') {
-      setState((s) => ({ ...s, tcpHealth: msg.tcp, udpHealth: msg.udp }))
+      setState((s) => ({
+        ...s,
+        tcpHealth: msg.tcp,
+        udpHealth: msg.udp,
+        queueDepth: msg.queue_depth ?? s.queueDepth,
+      }))
       return
     }
     if (msg.type !== 'alert') return

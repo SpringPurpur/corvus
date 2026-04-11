@@ -84,8 +84,8 @@ class ConfigBody(BaseModel):
     @field_validator("min_tcp_pkts")
     @classmethod
     def _check_min_pkts(cls, v: int) -> int:
-        if not (1 <= v <= 20):
-            raise ValueError("min_tcp_pkts must be between 1 and 20")
+        if not (2 <= v <= 20):
+            raise ValueError("min_tcp_pkts must be between 2 and 20")
         return v
 
 
@@ -221,6 +221,35 @@ async def get_feedback(flow_id: Optional[str] = Query(default=None)) -> list:
 async def delete_flows() -> dict:
     n = storage.clear_flows()
     return {"deleted": n}
+
+
+@app.delete("/queue")
+async def drain_queue() -> dict:
+    """Discard all flows currently waiting in the inference queues.
+
+    Used by the dashboard when the queue depth spikes (e.g. after a port scan
+    with min_tcp_pkts=2) and the operator wants to resume normal operation
+    without waiting for the backlog to drain naturally.
+    """
+    import queue as _queue
+
+    def _drain(q) -> int:
+        n = 0
+        if q is None:
+            return 0
+        while True:
+            try:
+                q.get_nowait()
+                n += 1
+            except _queue.Empty:
+                break
+        return n
+
+    n = await run_in_threadpool(
+        lambda: _drain(_flow_queue) + _drain(_tcp_queue) + _drain(_udp_queue)
+    )
+    log.info("Queue drained: %d flows discarded", n)
+    return {"drained": n}
 
 
 _BASELINE_NODES = [

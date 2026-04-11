@@ -29,12 +29,16 @@ function AppInner() {
 
   const { theme } = useTheme()
 
-  const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, handleMessage, loadHistory, clearAlerts } = useAlerts()
+  const { tcp, udp, tcpHealth, udpHealth, captureUp, modelsLoaded, baselining, baselineProgress, queueDepth, handleMessage, loadHistory, clearAlerts } = useAlerts()
 
   const handleClearLogs = () => {
     fetch('/flows', { method: 'DELETE' }).catch(() => {})
     clearAlerts()
     setSelected(null)
+  }
+
+  const handleDrainQueue = () => {
+    fetch('/queue', { method: 'DELETE' }).catch(() => {})
   }
 
   useEffect(() => {
@@ -67,8 +71,10 @@ function AppInner() {
         udpCount={udp.length}
         baselining={baselining}
         baselineProgress={baselineProgress}
+        queueDepth={queueDepth.total}
         onSettings={() => setShowSettings(true)}
         onClearLogs={handleClearLogs}
+        onDrainQueue={handleDrainQueue}
       />
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}

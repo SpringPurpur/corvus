@@ -8,8 +8,10 @@ interface Props {
   udpCount: number
   baselining: boolean
   baselineProgress: number
+  queueDepth: number
   onSettings: () => void
   onClearLogs: () => void
+  onDrainQueue: () => void
 }
 
 function Dot({ on, label }: { on: boolean; label: string }) {
@@ -24,7 +26,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, onSettings, onClearLogs }: Props) {
+export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, queueDepth, onSettings, onClearLogs, onDrainQueue }: Props) {
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
@@ -46,10 +48,33 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
             Baselining {Math.round(baselineProgress * 100)}%
           </span>
         )}
+        {queueDepth > 0 && (
+          <span
+            className="flex items-center gap-1.5 text-xs ml-2"
+            style={{ color: 'var(--color-badge-warn-text)' }}
+          >
+            <span
+              className="h-2 w-2 rounded-full animate-pulse"
+              style={{ backgroundColor: 'var(--color-badge-warn-text)' }}
+            />
+            Queue: {queueDepth.toLocaleString()}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span>TCP alerts: <span className="text-foreground font-medium">{tcpCount}</span></span>
         <span>UDP alerts: <span className="text-foreground font-medium">{udpCount}</span></span>
+        {queueDepth > 0 && (
+          <button
+            onClick={onDrainQueue}
+            title="Discard all flows waiting in the inference queue"
+            className="ml-1 transition-colors text-xs leading-none"
+            style={{ color: 'var(--color-badge-warn-text)' }}
+            aria-label="Drain queue"
+          >
+            Drain queue
+          </button>
+        )}
         <button
           onClick={onClearLogs}
           title="Clear stored flow logs"

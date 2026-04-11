@@ -75,6 +75,9 @@ def _protocol_worker(
     loop:             asyncio.AbstractEventLoop,
     classifier:       Classifier,
     proto_name:       str,   # "TCP" or "UDP"
+    flow_queue:       queue.Queue | None = None,
+    tcp_queue:        queue.Queue | None = None,
+    udp_queue:        queue.Queue | None = None,
 ) -> None:
     """Inference worker for a single protocol.
 
@@ -150,11 +153,15 @@ def _protocol_worker(
         # always gets a fresh view regardless of which protocol is active.
         _stats_counter += 1
         if _stats_counter % 20 == 0:
+            tq = tcp_queue.qsize()  if tcp_queue  is not None else 0
+            uq = udp_queue.qsize()  if udp_queue  is not None else 0
+            fq = flow_queue.qsize() if flow_queue is not None else 0
             loop.call_soon_threadsafe(
                 alert_queue.put_nowait,
                 {"type": "stats",
                  "tcp": _od.tcp_detector.metrics() | {"ready": _od.tcp_detector.is_ready},
-                 "udp": _od.udp_detector.metrics() | {"ready": _od.udp_detector.is_ready}},
+                 "udp": _od.udp_detector.metrics() | {"ready": _od.udp_detector.is_ready},
+                 "queue_depth": {"tcp": tq, "udp": uq, "flow": fq, "total": tq + uq + fq}},
             )
 
 
@@ -209,7 +216,8 @@ async def _run(args: argparse.Namespace) -> None:
     # Thread 3 — TCP inference worker
     threading.Thread(
         target=_protocol_worker,
-        args=(tcp_queue, alert_queue, loop, classifier, "TCP"),
+        args=(tcp_queue, alert_queue, loop, classifier, "TCP",
+              flow_queue, tcp_queue, udp_queue),
         daemon=True,
         name="tcp-worker",
     ).start()
@@ -217,7 +225,8 @@ async def _run(args: argparse.Namespace) -> None:
     # Thread 4 — UDP inference worker
     threading.Thread(
         target=_protocol_worker,
-        args=(udp_queue, alert_queue, loop, classifier, "UDP"),
+        args=(udp_queue, alert_queue, loop, classifier, "UDP",
+              flow_queue, tcp_queue, udp_queue),
         daemon=True,
         name="udp-worker",
     ).start()
