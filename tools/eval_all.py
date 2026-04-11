@@ -294,6 +294,9 @@ def main() -> None:
         if candidates:
             baseline_result = json.loads(candidates[-1].read_text())
 
+        # Snapshot the pure-benign DB before the first reset wipes it.
+        snapshot_db(run_dir, "baseline")
+
     # -- Run each scenario --
     scenario_results: list[dict] = []
 
@@ -341,16 +344,21 @@ def main() -> None:
     print(f"\n  Full summary saved to: {out_path}")
     print(f"  Run directory        : {run_dir}\n")
 
-    # -- Extract latency CSVs for thesis figures --
-    lat_script = Path(__file__).parent.parent / "thesis_figures" / "extract_latency_from_db.py"
-    if lat_script.exists():
-        print(f"\n[eval_all] Extracting pipeline latency data...")
-        subprocess.run(
-            [sys.executable, str(lat_script), "--run-dir", str(run_dir)],
-            capture_output=False,
-        )
-    else:
-        print(f"[eval_all] Skipping latency extraction (thesis_figures/ not present)")
+    # -- Extract figure data CSVs from per-scenario snapshots --
+    tf = Path(__file__).parent.parent / "thesis_figures"
+    for script_name, label in [
+        ("extract_scores_from_db.py",  "score"),
+        ("extract_latency_from_db.py", "latency"),
+    ]:
+        script = tf / script_name
+        if script.exists():
+            print(f"\n[eval_all] Extracting {label} data for thesis figures...")
+            subprocess.run(
+                [sys.executable, str(script), "--run-dir", str(run_dir)],
+                capture_output=False,
+            )
+        else:
+            print(f"[eval_all] Skipping {label} extraction (thesis_figures/ not present)")
 
 
 if __name__ == "__main__":
