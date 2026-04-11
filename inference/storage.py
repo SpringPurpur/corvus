@@ -334,6 +334,102 @@ def query_feedback(flow_id: str | None = None) -> list[dict]:
     ]
 
 
+def iter_flows_ndjson():
+    """Generator that yields one NDJSON line per flow, ordered by timestamp.
+
+    Opens its own read connection so it can be iterated lazily by a
+    StreamingResponse without holding the write lock or loading everything
+    into memory.  Suitable for arbitrarily large databases.
+    """
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        cursor = read_conn.execute(
+            """
+            SELECT flow_id, ts, proto, src_ip, dst_ip, src_port, dst_port,
+                   duration, fwd_pkts,
+                   label, severity, confidence,
+                   score_fast, score_medium, score_slow, score_comp,
+                   attribution,
+                   t_socket_ns, t_dequeue_ns, t_scored_ns
+            FROM flows
+            ORDER BY ts
+            """
+        )
+        for row in cursor:
+            obj = {
+                "flow_id":     row[0],  "ts":       row[1],  "proto":    row[2],
+                "src_ip":      row[3],  "dst_ip":   row[4],
+                "src_port":    row[5],  "dst_port": row[6],
+                "duration":    row[7],  "fwd_pkts": row[8],
+                "label":       row[9],  "severity": row[10], "confidence": row[11],
+                "score_fast":  row[12], "score_medium": row[13],
+                "score_slow":  row[14], "score_comp":   row[15],
+                "attribution": json.loads(row[16] or "[]"),
+                "t_socket_ns":  row[17],
+                "t_dequeue_ns": row[18],
+                "t_scored_ns":  row[19],
+            }
+            yield json.dumps(obj) + "\n"
+    finally:
+        read_conn.close()
+
+
+def query_hourly_summary() -> list[dict]:
+    """Return hourly aggregate stats for the summary CSV export.
+
+    One row per (hour, proto).  Columns: hour_ts (Unix), hour (ISO-8601),
+    proto, total, critical, high, info, mean_score, max_score, mean_oif_ms.
+    mean_oif_ms is the average pure OIF scoring time (t_scored − t_dequeue).
+    """
+    if _conn is None:
+        return []
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        rows = read_conn.execute(
+            """
+            SELECT
+                CAST(ts / 3600 AS INTEGER) * 3600         AS hour_ts,
+                proto,
+                COUNT(*)                                   AS total,
+                SUM(severity = 'CRITICAL')                 AS critical,
+                SUM(severity = 'HIGH')                     AS high,
+                SUM(severity = 'INFO')                     AS info,
+                AVG(confidence)                            AS mean_score,
+                MAX(confidence)                            AS max_score,
+                AVG(
+                    CASE WHEN t_scored_ns IS NOT NULL
+                              AND t_dequeue_ns IS NOT NULL
+                         THEN (t_scored_ns - t_dequeue_ns) / 1e6
+                         ELSE NULL END
+                )                                          AS mean_oif_ms
+            FROM flows
+            GROUP BY hour_ts, proto
+            ORDER BY hour_ts, proto
+            """
+        ).fetchall()
+    finally:
+        read_conn.close()
+
+    import datetime
+    return [
+        {
+            "hour_ts":    r[0],
+            "hour":       datetime.datetime.utcfromtimestamp(r[0]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "proto":      r[1],
+            "total":      r[2],
+            "critical":   r[3] or 0,
+            "high":       r[4] or 0,
+            "info":       r[5] or 0,
+            "mean_score": round(r[6] or 0.0, 6),
+            "max_score":  round(r[7] or 0.0, 6),
+            "mean_oif_ms": round(r[8] or 0.0, 4) if r[8] is not None else None,
+        }
+        for r in rows
+    ]
+
+
 def query_window_history(
     proto: str,
     since: float,

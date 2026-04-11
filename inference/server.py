@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
@@ -320,6 +321,44 @@ async def dev_fast_baseline() -> dict:
     except Exception as exc:
         log.error("[dev] fast-baseline failed: %s", exc)
         raise HTTPException(500, str(exc))
+
+
+@app.get("/export/flows.ndjson")
+async def export_flows_ndjson() -> StreamingResponse:
+    """Stream all flow records as NDJSON (one JSON object per line).
+
+    Includes per-window scores and attribution — suitable for re-running
+    through other ML models or comparative analysis in the thesis.
+    """
+    return StreamingResponse(
+        storage.iter_flows_ndjson(),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": 'attachment; filename="corvus_flows.ndjson"'},
+    )
+
+
+@app.get("/export/summary.csv")
+async def export_summary_csv() -> Response:
+    """Export hourly aggregate statistics as CSV.
+
+    Columns: hour, proto, total_flows, critical, high, info,
+             mean_score, max_score, mean_oif_ms.
+    Useful for the paper's stability and latency graphs.
+    """
+    rows = await run_in_threadpool(storage.query_hourly_summary)
+    lines = ["hour,proto,total_flows,critical,high,info,mean_score,max_score,mean_oif_ms"]
+    for r in rows:
+        oif = f"{r['mean_oif_ms']:.4f}" if r["mean_oif_ms"] is not None else ""
+        lines.append(
+            f"{r['hour']},{r['proto']},{r['total']},"
+            f"{r['critical']},{r['high']},{r['info']},"
+            f"{r['mean_score']:.6f},{r['max_score']:.6f},{oif}"
+        )
+    return Response(
+        content="\n".join(lines),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="corvus_summary.csv"'},
+    )
 
 
 @app.websocket("/ws")

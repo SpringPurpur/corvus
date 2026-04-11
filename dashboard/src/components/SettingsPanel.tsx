@@ -283,6 +283,41 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
           </section>
 
+          {/* ── Export ────────────────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
+              Export
+            </h3>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Data is stored in <span className="font-mono">./data/flows.db</span> on the host
+              and persists across container restarts.
+            </p>
+            <div className="flex flex-col gap-2">
+              <a
+                href="/export/flows.ndjson"
+                download="corvus_flows.ndjson"
+                className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/60 transition-colors"
+                style={{ borderRadius: 'var(--radius)' }}
+              >
+                <span className="font-medium">NDJSON — full flow records</span>
+                <span className="text-muted-foreground ml-auto text-[10px]">
+                  scores · attribution · timing
+                </span>
+              </a>
+              <a
+                href="/export/summary.csv"
+                download="corvus_summary.csv"
+                className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/60 transition-colors"
+                style={{ borderRadius: 'var(--radius)' }}
+              >
+                <span className="font-medium">CSV — hourly summary</span>
+                <span className="text-muted-foreground ml-auto text-[10px]">
+                  counts · mean score · OIF latency
+                </span>
+              </a>
+            </div>
+          </section>
+
           {/* ── Developer Mode ────────────────────────────────────────── */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <div className="flex items-center justify-between mt-2">
