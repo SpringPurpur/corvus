@@ -5,6 +5,8 @@ export interface AppConfig {
   threshold_critical: number
   baseline_tcp:       number
   baseline_udp:       number
+  min_tcp_pkts:       number   // minimum TCP packets before flow reaches OIF (default 4)
+  filter_gateway:     boolean  // suppress Docker bridge gateway (172.20.0.1) flows
 }
 
 export interface Verdict {
@@ -29,7 +31,7 @@ export interface AttributionEntry {
 }
 
 export interface PipelineTiming {
-  flow_ts_ns:    number   // C engine: last_pkt_ns — flow completion time (ns)
+  t_enqueue_ns:  number   // C engine: ipc_writer_enqueue() ring copy time (ns)
   t_socket_ns:   number   // Python: after ctypes decode in socket_reader (ns)
   t_dequeue_ns:  number   // Python: when protocol worker dequeued the flow (ns)
   t_scored_ns:   number   // Python: after OIF scoring completes (ns)

@@ -92,6 +92,11 @@ UDP_IF_FEATURES: list[tuple[str, callable]] = [
 TCP_IF_FEATURE_NAMES = [name for name, _ in TCP_IF_FEATURES]
 UDP_IF_FEATURE_NAMES = [name for name, _ in UDP_IF_FEATURES]
 
+# IPs suppressed when cfg.filter_gateway=True (developer mode toggle).
+# 172.20.0.1 is the Docker bridge gateway — all host-side API calls,
+# dashboard WebSocket connections, and eval script polls originate here.
+MANAGEMENT_IPS: frozenset[str] = frozenset({"172.20.0.1"})
+
 
 def _extract(flow: dict, features: list[tuple[str, callable]]) -> np.ndarray:
     return np.array([fn(flow) for _, fn in features], dtype=np.float64)
@@ -828,7 +833,13 @@ def process_flow(flow: dict) -> dict | None:
         log.debug("Unsupported protocol %d — skipping", proto)
         return None
 
-    if proto == 6 and flow.get("tot_pkts", 0) < 4:
+    if cfg.filter_gateway:
+        src = flow.get("src_ip", "")
+        dst = flow.get("dst_ip", "")
+        if src in MANAGEMENT_IPS or dst in MANAGEMENT_IPS:
+            return None
+
+    if proto == 6 and flow.get("tot_pkts", 0) < cfg.min_tcp_pkts:
         return None
     if proto == 17 and flow.get("flow_duration_s", 0.0) < 1e-4:
         return None

@@ -13,6 +13,7 @@ description: >
 
 attacker_container: ids_attacker
 attacker_ip: "172.20.0.20"
+attacker_port: 443   # all RST_STREAM bursts target nginx HTTPS port
 
 attack:
   script: /attacks/http2_rapid_reset.sh

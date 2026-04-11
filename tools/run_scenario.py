@@ -257,6 +257,7 @@ def compute_metrics(
     t_attack_end: float,
     threshold_high: float = 0.60,
     threshold_critical: float = 0.80,
+    attacker_port: int | None = None,
 ) -> dict:
     # attack_flows: all attacker-IP flows in the query window.
     # The outer query (ts_from=window_start, ts_to=window_end) already bounds the
@@ -265,6 +266,13 @@ def compute_metrics(
     # narrower than the docker-exec overhead + first-packet latency, causing flows
     # whose pcap timestamp lands just outside the narrow window to be missed entirely.
     attack_flows  = [f for f in all_flows if _involves_attacker(f, attacker_ip)]
+    # Optional port filter: narrows burst-attack flows to a specific target port.
+    # Flows are IP-normalised (lower IP → src), so the victim's port may appear
+    # in either src_port or dst_port depending on which side has the lower address.
+    if attacker_port is not None:
+        attack_flows = [f for f in attack_flows
+                        if f.get("src_port") == attacker_port
+                        or f.get("dst_port") == attacker_port]
     benign_flows  = [f for f in all_flows if not _involves_attacker(f, attacker_ip)]
     post_flows    = [f for f in all_flows if f["ts"] > t_attack_end]
 
@@ -411,6 +419,7 @@ def main() -> None:
 
     container    = scenario.get("attacker_container", "ids_attacker")
     attacker_ip  = scenario["attacker_ip"]
+    attacker_port = scenario.get("attacker_port")  # optional: tighten burst-attack flow filter
     baseline_cfg = scenario.get("baseline", {})
     recovery_cfg = scenario.get("recovery", {})
     monitor_s    = recovery_cfg.get("monitor_s", 60)
@@ -596,6 +605,7 @@ def main() -> None:
     metrics = compute_metrics(
         window_flows, attacker_ip, c_attack_start, c_attack_end,
         args.threshold_high, args.threshold_critical,
+        attacker_port=attacker_port,
     )
 
     # -- Save results --
@@ -674,6 +684,7 @@ def main() -> None:
         "run_at":            t_attack_start,
         "run_at_human":      datetime.fromtimestamp(t_attack_start).strftime("%Y-%m-%d %H:%M:%S"),
         "attacker_ip":       attacker_ip,
+        "attacker_port":     attacker_port,
         "ts_offset_s":       ts_offset,
         "phases":            all_phases,
         "window_flows":      len(window_flows),

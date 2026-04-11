@@ -22,6 +22,8 @@ const DEFAULT_CFG: AppConfig = {
   threshold_critical: 0.80,
   baseline_tcp:       4096,
   baseline_udp:       1024,
+  min_tcp_pkts:       4,
+  filter_gateway:     false,
 }
 
 export function SettingsPanel({ onClose }: Props) {
@@ -319,39 +321,108 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
 
             {devMode && (
-              <div className="flex flex-col gap-3">
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Runs <span className="font-mono">fast_baseline.sh</span> on all 5 node
-                  containers simultaneously — generates HTTP, DNS, and SSH traffic to
-                  fill the OIF baselines in ~1–2 minutes instead of organic traffic time.
-                  Requires all node containers to be running.
-                </p>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleFastBaseline}
-                    disabled={fbState === 'running'}
-                    className={cn(
-                      'px-3 py-1.5 text-xs font-medium transition-colors border',
-                      fbState === 'running' && 'opacity-50 cursor-not-allowed',
-                    )}
-                    style={{
-                      backgroundColor: 'var(--color-badge-warn-bg)',
-                      borderColor:     'var(--color-badge-warn-bdr)',
-                      color:           'var(--color-badge-warn-text)',
-                      borderRadius:    'var(--radius)',
-                    }}
-                  >
-                    {fbState === 'running' ? 'Triggering…' : 'Trigger Fast Baseline'}
-                  </button>
-                  {fbMsg && (
-                    <span
-                      className="text-xs"
-                      style={{ color: fbState === 'err' ? 'var(--color-badge-danger-text)' : 'var(--color-count-trained)' }}
+              <div className="flex flex-col gap-4">
+
+                {/* Fast Baseline */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Runs <span className="font-mono">fast_baseline.sh</span> on all 5 node
+                    containers simultaneously — generates HTTP, DNS, and SSH traffic to
+                    fill the OIF baselines in ~20 seconds instead of organic traffic time.
+                    Requires all node containers to be running.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleFastBaseline}
+                      disabled={fbState === 'running'}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-medium transition-colors border',
+                        fbState === 'running' && 'opacity-50 cursor-not-allowed',
+                      )}
+                      style={{
+                        backgroundColor: 'var(--color-badge-warn-bg)',
+                        borderColor:     'var(--color-badge-warn-bdr)',
+                        color:           'var(--color-badge-warn-text)',
+                        borderRadius:    'var(--radius)',
+                      }}
                     >
-                      {fbMsg}
-                    </span>
-                  )}
+                      {fbState === 'running' ? 'Triggering…' : 'Trigger Fast Baseline'}
+                    </button>
+                    {fbMsg && (
+                      <span
+                        className="text-xs"
+                        style={{ color: fbState === 'err' ? 'var(--color-badge-danger-text)' : 'var(--color-count-trained)' }}
+                      >
+                        {fbMsg}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Min TCP packets */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-dashed" style={{ borderColor: 'var(--color-badge-warn-bdr)' }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--color-badge-warn-text)' }}>
+                      Min TCP packet guard
+                    </span>
+                    <span className="text-xs tabular-nums font-mono" style={{ color: 'var(--color-badge-warn-text)' }}>
+                      {cfg.min_tcp_pkts} pkts
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1} max={10} step={1}
+                    value={cfg.min_tcp_pkts}
+                    onChange={(e) => set('min_tcp_pkts', parseInt(e.target.value))}
+                    style={{ accentColor: 'var(--color-badge-warn-text)' }}
+                    className="w-full"
+                  />
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Default 4 blocks micro-flows (port scans, SYN floods) from reaching
+                    the OIF. Set to 1 to observe how the detector scores 2–3 packet flows.
+                    <span className="font-medium" style={{ color: 'var(--color-badge-warn-text)' }}> Poisoning risk at low values.</span>
+                  </p>
+                </div>
+
+                {/* Filter gateway */}
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-dashed" style={{ borderColor: 'var(--color-badge-warn-bdr)' }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--color-badge-warn-text)' }}>
+                      Filter gateway traffic
+                    </span>
+                    <button
+                      onClick={() => set('filter_gateway', cfg.filter_gateway ? 0 : 1)}
+                      className="flex items-center gap-1.5 text-xs transition-colors"
+                      style={{ color: cfg.filter_gateway ? 'var(--color-badge-warn-text)' : undefined }}
+                    >
+                      <span
+                        className="inline-flex items-center h-4 w-7 border transition-colors"
+                        style={{
+                          backgroundColor: cfg.filter_gateway ? 'var(--color-badge-warn-bg)' : 'hsl(var(--muted))',
+                          borderColor:     cfg.filter_gateway ? 'var(--color-badge-warn-bdr)' : 'hsl(var(--border))',
+                          borderRadius:    'var(--radius)',
+                        }}
+                      >
+                        <span
+                          className="h-3 w-3 border transition-all"
+                          style={{
+                            transform:       cfg.filter_gateway ? 'translateX(14px)' : 'translateX(1px)',
+                            backgroundColor: cfg.filter_gateway ? 'var(--color-badge-warn-text)' : 'hsl(var(--muted-foreground))',
+                            borderColor:     'transparent',
+                            borderRadius:    'calc(var(--radius) / 2)',
+                          }}
+                        />
+                      </span>
+                      {cfg.filter_gateway ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Suppress flows from <span className="font-mono">172.20.0.1</span> (Docker
+                    bridge gateway — API polls, dashboard WebSocket). Enables cleaner FPR
+                    measurement during eval runs. Does not affect detection quality.
+                  </p>
+                </div>
+
               </div>
             )}
           </section>

@@ -9,6 +9,7 @@ description: >
 
 attacker_container: ids_attacker
 attacker_ip: "172.20.0.20"
+attacker_port: 80    # HTTP GET flood targets victim_web port 80
 
 attack:
   script: /attacks/http_flood.sh

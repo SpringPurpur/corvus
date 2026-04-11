@@ -64,6 +64,8 @@ class ConfigBody(BaseModel):
     threshold_critical: float
     baseline_tcp:       int
     baseline_udp:       int
+    min_tcp_pkts:       int  = 4
+    filter_gateway:     bool = False
 
     @field_validator("threshold_high", "threshold_critical")
     @classmethod
@@ -77,6 +79,13 @@ class ConfigBody(BaseModel):
     def _check_baseline(cls, v: int) -> int:
         if v < 64:
             raise ValueError("baseline must be at least 64 flows")
+        return v
+
+    @field_validator("min_tcp_pkts")
+    @classmethod
+    def _check_min_pkts(cls, v: int) -> int:
+        if not (1 <= v <= 20):
+            raise ValueError("min_tcp_pkts must be between 1 and 20")
         return v
 
 

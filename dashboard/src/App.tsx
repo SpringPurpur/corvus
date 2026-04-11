@@ -17,6 +17,7 @@ const llmResponses: Record<string, string> = {}
 const DEFAULT_CONFIG: AppConfig = {
   threshold_high: 0.60, threshold_critical: 0.80,
   baseline_tcp: 4096, baseline_udp: 1024,
+  min_tcp_pkts: 4, filter_gateway: false,
 }
 
 function AppInner() {

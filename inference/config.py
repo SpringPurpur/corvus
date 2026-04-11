@@ -34,6 +34,18 @@ class AppConfig:
     baseline_tcp: int = 4096
     baseline_udp: int = 1024
 
+    # Minimum TCP packet count before a flow is passed to the OIF.
+    # Default 4 prevents micro-flows (port scans, SYN floods) from reaching
+    # the detector and poisoning the baseline. Lower to 1 in developer mode
+    # to observe how the OIF scores these flows without permanent effect.
+    min_tcp_pkts: int = 4
+
+    # When True, flows where either endpoint is the Docker bridge gateway
+    # (172.20.0.1) are silently dropped before OIF scoring and storage.
+    # Useful during eval runs to suppress host management traffic (API polls,
+    # dashboard WebSocket) that is structurally out-of-distribution but benign.
+    filter_gateway: bool = False
+
 
 def _load(path: Path) -> AppConfig:
     if not path.exists():
