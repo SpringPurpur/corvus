@@ -101,6 +101,39 @@ def reset(api: str) -> None:
         raise
 
 
+# -- DB snapshot --
+
+def snapshot_db(run_dir: Path, ts_str: str) -> None:
+    """Copy flows.db from the inference container into the run directory.
+
+    Uses 'docker ps' to locate the running inference container by name, then
+    docker cp to pull /app/data/flows.db out. If docker is unavailable or the
+    container is not found the step is skipped with a warning — the eval
+    results JSON files are still intact.
+    """
+    dest = run_dir / f"flows_{ts_str}.db"
+    try:
+        ps = subprocess.run(
+            ["docker", "--context", "default", "ps",
+             "--filter", "name=inference", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        containers = [c.strip() for c in ps.stdout.strip().splitlines() if c.strip()]
+        if not containers:
+            print("[db] WARNING: no running container matched 'inference' — skipping DB snapshot")
+            return
+        container = containers[0]
+        subprocess.run(
+            ["docker", "--context", "default", "cp",
+             f"{container}:/app/data/flows.db", str(dest)],
+            check=True, timeout=60,
+        )
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"[db] Database snapshot saved: {dest.name}  ({size_mb:.1f} MB)")
+    except Exception as exc:
+        print(f"[db] WARNING: could not copy DB: {exc}")
+
+
 # -- Run a single scenario via subprocess --
 
 def run_scenario(yml_path: Path, api: str, run_dir: Path) -> Path | None:
@@ -314,6 +347,8 @@ def main() -> None:
     out_path.write_text(json.dumps(summary, indent=2))
     print(f"\n  Full summary saved to: {out_path}")
     print(f"  Run directory        : {run_dir}\n")
+
+    snapshot_db(run_dir, ts_str)
 
 
 if __name__ == "__main__":

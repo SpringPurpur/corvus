@@ -506,55 +506,15 @@ def main() -> None:
         time.sleep(monitor_s)
     close_phase(args.api, recovery_phase_id, t_end=time.time())
 
-    # -- Wait for ring buffer to drain before querying --
-    # The SYN flood (and any pre-existing ring buffer backlog) causes flows to
-    # arrive in Python long after their capture timestamp. Flows are only written
-    # to SQLite once processed, so querying immediately after monitoring misses
-    # flows still in the queue.
-    #
-    # Strategy: measure background flow rate (flows/s before the attack), then
-    # after monitoring, poll until the processing rate drops back to within 20%
-    # of that baseline for 3 consecutive intervals - meaning the burst has drained.
-    background_rate = (stats_before["tcp"].get("n_seen", 0) +
-                       stats_before["udp"].get("n_seen", 0))
-
-    # Sample rate over a short pre-query window to get flows/s
-    time.sleep(5)
-    sample_total = background_rate  # fallback: assume no new flows during drain wait
-    try:
-        s_sample = _get_stats(args.api)
-        sample_total = s_sample["tcp"].get("n_seen", 0) + s_sample["udp"].get("n_seen", 0)
-        background_rate_per_s = (sample_total - background_rate) / (monitor_s + 5)
-    except Exception:
-        background_rate_per_s = 50   # safe fallback
-
-    background_rate_per_s = max(background_rate_per_s, 1)
-
-    print(f"\n[drain] Background rate: {background_rate_per_s:.1f} flows/s. "
-          f"Waiting for queue to drain...")
-
-    prev_seen = sample_total
-    stable_count = 0
-    poll_interval = 5
-    for _ in range(72):   # max 72 x 5s = 6 minutes
-        time.sleep(poll_interval)
-        try:
-            s = _get_stats(args.api)
-            cur_seen = s["tcp"].get("n_seen", 0) + s["udp"].get("n_seen", 0)
-        except Exception:
-            continue
-        rate = (cur_seen - prev_seen) / poll_interval
-        prev_seen = cur_seen
-        print(f"  [drain] current rate: {rate:.1f} flows/s  "
-              f"(baseline: {background_rate_per_s:.1f})")
-        if rate <= background_rate_per_s * 1.2:
-            stable_count += 1
-            if stable_count >= 3:
-                break
-        else:
-            stable_count = 0
-
-    print("[drain] Queue stable -- proceeding to query.\n")
+    # -- Wait for inference queue to drain before querying --
+    # Flows are written to SQLite only after being processed by a protocol worker.
+    # For flood attacks this is fine — the queue drains quickly at ~1 ms/flow.
+    # For SYN flood specifically, the C engine holds the single massive flow in its
+    # table for 120 s after the last packet (idle timeout), then sends it to Python.
+    # monitor_s=150 guarantees the flow has been sent, but it still needs to pass
+    # through the inference queue. Polling queue_depth.total == 0 is the only
+    # reliable signal that all flows have been scored and written to the DB.
+    wait_for_queue_empty(args.api, timeout_s=180, label="post-recovery drain")
 
     stats_after = _get_stats(args.api)
 
