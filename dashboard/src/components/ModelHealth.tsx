@@ -5,12 +5,15 @@
 // withheld from training — the poisoning defence is active. A falling rate after
 // an attack ends reflects the window forgetting the attack distribution.
 
-import type { OifMetrics, AppConfig } from '../types'
+import type { OifMetrics, AppConfig, Alert } from '../types'
+import { WindowConsensus } from './WindowConsensus'
 
 interface Props {
-  tcp: OifMetrics
-  udp: OifMetrics
-  config: AppConfig
+  tcp:       OifMetrics
+  udp:       OifMetrics
+  config:    AppConfig
+  tcpAlerts: Alert[]
+  udpAlerts: Alert[]
 }
 
 function rejectionBadge(rate: number) {
@@ -62,8 +65,8 @@ function ScoreSparkline({ scores, thHigh, thCrit }: { scores: number[]; thHigh: 
   )
 }
 
-function ProtocolPanel({ label, m, thHigh, thCrit }: {
-  label: string; m: OifMetrics; thHigh: number; thCrit: number
+function ProtocolPanel({ label, m, alerts, thHigh, thCrit }: {
+  label: string; m: OifMetrics; alerts: Alert[]; thHigh: number; thCrit: number
 }) {
   const badge   = rejectionBadge(m.rejection_rate)
   const trained  = m.n_seen > 0 ? (m.n_trained  / m.n_seen) * 100 : 0
@@ -141,20 +144,28 @@ function ProtocolPanel({ label, m, thHigh, thCrit }: {
         <div className="text-[10px] text-muted-foreground mb-1">Recent scores</div>
         <ScoreSparkline scores={m.score_recent} thHigh={thHigh} thCrit={thCrit} />
       </div>
+
+      {/* Per-window consensus heatmap + divergence sparkline */}
+      {alerts.length > 0 && (
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-1.5">Window consensus</div>
+          <WindowConsensus alerts={alerts} thHigh={thHigh} thCrit={thCrit} />
+        </div>
+      )}
     </div>
   )
 }
 
-export function ModelHealth({ tcp, udp, config }: Props) {
+export function ModelHealth({ tcp, udp, config, tcpAlerts, udpAlerts }: Props) {
   return (
     <div className="p-4 space-y-6 overflow-y-auto h-full text-sm">
 
-      <ProtocolPanel label="TCP detector" m={tcp}
+      <ProtocolPanel label="TCP detector" m={tcp} alerts={tcpAlerts}
         thHigh={config.threshold_high} thCrit={config.threshold_critical} />
 
       <div className="border-t border-border" />
 
-      <ProtocolPanel label="UDP detector" m={udp}
+      <ProtocolPanel label="UDP detector" m={udp} alerts={udpAlerts}
         thHigh={config.threshold_high} thCrit={config.threshold_critical} />
 
       {/* Window memory reference */}

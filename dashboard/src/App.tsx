@@ -126,7 +126,7 @@ function AppInner() {
       <div className="flex flex-1 overflow-hidden">
         {tab === 'Health' ? (
           <div className="flex-1 overflow-hidden">
-            <ModelHealth tcp={tcpHealth} udp={udpHealth} config={config} />
+            <ModelHealth tcp={tcpHealth} udp={udpHealth} config={config} tcpAlerts={tcp} udpAlerts={udp} />
           </div>
         ) : (
           <>
