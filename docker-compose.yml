@@ -1,126 +1,24 @@
+# docker-compose.yml — Corvus IDS core services.
+#
+# Runs ONLY the capture engine and inference engine.
+# No victim nodes, no attacker, no test network — just the IDS.
+#
+# For the evaluation testbed add the overlay:
+#   docker-compose -f docker-compose.yml -f docker-compose.testbed.yml up -d
+#
+# Interface selection (evaluated in order by capture/start.sh):
+#   1. CAPTURE_INTERFACE=eth0   — explicit, set in .env
+#   2. Any UP+PROMISC interface  — analyst ran: ip link set <iface> promisc on
+#   3. Docker bridge for 172.20.0.0/24 — testbed auto-detect fallback
+#
+# Authentication:
+#   Set CORVUS_API_KEY in .env to require X-API-Key on all API calls.
+#   Leave empty to disable (trusted networks / development).
+#   See .env.example for all supported variables.
+
 services:
 
-  # ── Victim nodes (nginx + SSH + inter-node traffic generator) ──────────────
-  # Each node runs all services and generates traffic to its peers, modelling
-  # a realistic internal network segment where every machine is both a server
-  # and a client. Attacks target all 5 nodes simultaneously.
-  node_1:
-    build:
-      context: .
-      dockerfile: victim_node/Dockerfile
-    container_name: ids_node_1
-    environment:
-      - NODE_IP=172.20.0.10
-      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
-      - CLIENT_ID=1
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.10
-    depends_on:
-      - dns
-      - ntp
-
-  node_2:
-    build:
-      context: .
-      dockerfile: victim_node/Dockerfile
-    container_name: ids_node_2
-    environment:
-      - NODE_IP=172.20.0.11
-      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
-      - CLIENT_ID=2
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.11
-    depends_on:
-      - dns
-      - ntp
-
-  node_3:
-    build:
-      context: .
-      dockerfile: victim_node/Dockerfile
-    container_name: ids_node_3
-    environment:
-      - NODE_IP=172.20.0.12
-      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
-      - CLIENT_ID=3
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.12
-    depends_on:
-      - dns
-      - ntp
-
-  node_4:
-    build:
-      context: .
-      dockerfile: victim_node/Dockerfile
-    container_name: ids_node_4
-    environment:
-      - NODE_IP=172.20.0.13
-      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
-      - CLIENT_ID=4
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.13
-    depends_on:
-      - dns
-      - ntp
-
-  node_5:
-    build:
-      context: .
-      dockerfile: victim_node/Dockerfile
-    container_name: ids_node_5
-    environment:
-      - NODE_IP=172.20.0.14
-      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
-      - CLIENT_ID=5
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.14
-    depends_on:
-      - dns
-      - ntp
-
-  # ── UDP infrastructure (DNS + NTP) ────────────────────────────────────────
-  dns:
-    build:
-      context: ./dns
-      dockerfile: Dockerfile
-    container_name: ids_dns
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.50
-
-  ntp:
-    build:
-      context: ./ntp
-      dockerfile: Dockerfile
-    container_name: ids_ntp
-    cap_add:
-      - SYS_TIME
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.51
-
-  # ── Attacker ───────────────────────────────────────────────────────────────
-  attacker:
-    build:
-      context: ./attacker
-      dockerfile: Dockerfile
-    container_name: ids_attacker
-    stdin_open: true
-    tty: true
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.20
-
-  # ── Monitor (C capture engine) ─────────────────────────────────────────────
+  # ── Capture engine (C) ────────────────────────────────────────────────────
   monitor:
     build:
       context: ./capture
@@ -129,16 +27,12 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    # Host network mode: share the VM's network namespace so the capture engine
-    # can see the Docker bridge interface (br-XXXXXX) where all inter-container
-    # traffic flows. A container's own eth0 in bridge mode only receives unicast
-    # frames addressed to it — host mode bypasses this limitation.
+    # Host network namespace — required to see the monitored interface.
+    # Container-mode networking only delivers unicast frames addressed to
+    # the container's own MAC; host mode gives the full promiscuous view.
     network_mode: host
     environment:
-      # Leave empty for auto-detection (finds the Docker bridge for ids_net).
-      # For SPAN/TAP port deployments set to the physical NIC, e.g. ens3.
       - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-}
-      # Optional BPF filter, e.g. "ip and not host 192.168.1.1"
       - CAPTURE_FILTER=${CAPTURE_FILTER:-}
     volumes:
       - ./capture:/app/capture
@@ -146,31 +40,26 @@ services:
     depends_on:
       inference:
         condition: service_healthy
+    restart: unless-stopped
 
-  # ── Inference engine (Python) ──────────────────────────────────────────────
+  # ── Inference engine (Python) ─────────────────────────────────────────────
   inference:
     build: ./inference
     container_name: ids_inference
     volumes:
       - ipc_socket:/tmp/ids_ipc
-      # Dashboard dist/ built on host by launch.py before docker-compose runs
       - ./dashboard/dist:/app/static:ro
-      # OIF model state persists across container restarts on the host.
-      # Files are written by the inference engine; ignored by git.
       - ./inference/models:/app/models
-      # Analyst config (thresholds etc.) persists across container restarts.
       - ./inference/config.json:/app/config.json
-      # SQLite flow DB persists across container restarts on the host.
       - ./data:/app/data
-      # Docker socket — used by /dev/fast-baseline to exec scripts on node containers.
+      # Docker socket — only required for the /dev/fast-baseline endpoint.
+      # Remove this line if you don't need that feature.
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "8765:8765"
-    networks:
-      ids_net:
-        ipv4_address: 172.20.0.31
+      - "${CORVUS_PORT:-8765}:8765"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CORVUS_API_KEY=${CORVUS_API_KEY:-}
       - PYTHONUNBUFFERED=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
@@ -178,13 +67,7 @@ services:
       timeout: 3s
       start_period: 15s
       retries: 3
-
-networks:
-  ids_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
+    restart: unless-stopped
 
 volumes:
   ipc_socket:

@@ -3,9 +3,17 @@
 # The app is mounted with StaticFiles last so /ws and /health take priority.
 # CORSMiddleware allows the Vite dev server (localhost:5173) during development.
 # In production the browser is served from the same origin — no CORS needed.
+#
+# Authentication:
+#   Set CORVUS_API_KEY in the environment to require authentication.
+#   API endpoints: X-API-Key: <key> request header.
+#   WebSocket /ws: ?key=<key> query parameter (browsers can't set WS headers).
+#   Leave CORVUS_API_KEY unset (or empty) to disable — suitable for trusted
+#   networks or local development.
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -14,9 +22,11 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
+from starlette.requests import Request as StarletteRequest
 
 import config as cfg_module
 import storage
@@ -26,13 +36,61 @@ log = logging.getLogger(__name__)
 
 STATIC_DIR = Path("/app/static")
 
+# ── API key authentication ─────────────────────────────────────────────────────
+# Read once at startup; requires container restart to change.
+_API_KEY = os.environ.get("CORVUS_API_KEY", "").strip()
+
+# Paths that bypass authentication — health probes and the dashboard bundle.
+_OPEN_PATHS = {"/health", "/llm/status"}
+
+
+class _ApiKeyMiddleware(BaseHTTPMiddleware):
+    """Enforce X-API-Key header (or ?key= for WebSocket) when CORVUS_API_KEY is set."""
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if not _API_KEY:
+            return await call_next(request)          # auth disabled
+
+        path = request.url.path
+
+        # Always open: health probes and the static dashboard bundle
+        if path in _OPEN_PATHS:
+            return await call_next(request)
+        if path == "/" or (path.count("/") == 1 and "." in path):
+            # Static asset (e.g. /index.html, /assets/main.js)
+            return await call_next(request)
+
+        # WebSocket — check query param (browser JS cannot set custom WS headers)
+        if path == "/ws":
+            if request.query_params.get("key") == _API_KEY:
+                return await call_next(request)
+            log.warning("WS connection rejected — missing or wrong key from %s",
+                        request.client)
+            return Response("Unauthorized", status_code=401)
+
+        # All other API routes — check header
+        if request.headers.get("X-API-Key") == _API_KEY:
+            return await call_next(request)
+
+        log.warning("API request rejected — missing or wrong key: %s %s",
+                    request.method, path)
+        return Response(
+            '{"detail":"Unauthorized — X-API-Key header required"}',
+            status_code=401,
+            media_type="application/json",
+        )
+
+
 app = FastAPI(title="Corvus IDS")
+
+# Auth middleware must be added before CORS so it runs outermost
+app.add_middleware(_ApiKeyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],   # Vite dev server
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],
 )
 
 # Injected by main.py after startup so WebSocket handler can call LLM functions

@@ -35,6 +35,8 @@ function AppInner() {
   const [llmReady, setLlmReady]     = useState(false)
   const [checked, setChecked]       = useState<Set<string>>(new Set())
   const [clockOffsetMs, setClockOffsetMs] = useState(0)  // server_ms − host_ms
+  const [needsApiKey, setNeedsApiKey]     = useState(false)
+  const [apiKeyInput, setApiKeyInput]     = useState('')
 
   const { theme } = useTheme()
 
@@ -66,7 +68,10 @@ function AppInner() {
   }
 
   useEffect(() => {
-    fetch('/config').then(r => r.json()).then(setConfig).catch(() => {})
+    fetch('/config').then(r => {
+      if (r.status === 401) { setNeedsApiKey(true); return null }
+      return r.json()
+    }).then(d => { if (d) setConfig(d) }).catch(() => {})
     fetch('/llm/status').then(r => r.json()).then(d => setLlmReady(!!d.available)).catch(() => {})
     // Measure container ↔ host clock skew via NTP-style midpoint estimate.
     // clockOffsetMs = serverTime − hostTime; subtract from t_ws_ns before
@@ -107,6 +112,50 @@ function AppInner() {
     setTab(t)
     setSelected(null)
     setEntityFilter(null)
+  }
+
+  // ── API key gate ──────────────────────────────────────────────────────────
+  if (needsApiKey) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-background" data-theme={theme}>
+        <div
+          className="flex flex-col gap-3 p-6 border bg-card shadow-xl w-80"
+          style={{ borderRadius: 'var(--radius)' }}
+        >
+          <h2 className="text-sm font-semibold">API Key Required</h2>
+          <p className="text-xs text-muted-foreground">
+            This Corvus instance requires authentication.<br />
+            Enter the key configured in <span className="font-mono">CORVUS_API_KEY</span>.
+          </p>
+          <input
+            type="password"
+            autoFocus
+            value={apiKeyInput}
+            onChange={e => setApiKeyInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && apiKeyInput.trim()) {
+                sessionStorage.setItem('corvus_api_key', apiKeyInput.trim())
+                window.location.reload()
+              }
+            }}
+            placeholder="corvus-api-key"
+            className="bg-muted px-3 py-1.5 text-xs rounded focus:outline-none focus:ring-1 focus:ring-border"
+            style={{ borderRadius: 'var(--radius)' }}
+          />
+          <button
+            onClick={() => {
+              if (!apiKeyInput.trim()) return
+              sessionStorage.setItem('corvus_api_key', apiKeyInput.trim())
+              window.location.reload()
+            }}
+            className="px-4 py-1.5 text-xs font-medium text-white transition-colors"
+            style={{ backgroundColor: 'var(--color-accent)', borderRadius: 'var(--radius)' }}
+          >
+            Connect
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

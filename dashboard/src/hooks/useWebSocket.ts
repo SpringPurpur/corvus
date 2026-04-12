@@ -8,7 +8,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { decode, encode } from '@msgpack/msgpack'
 import type { WsMessage, FeedbackMsg, LlmRequestMsg } from '../types'
 
-const WS_URL = `ws://${window.location.host}/ws`
+function wsUrl(): string {
+  const base = `ws://${window.location.host}/ws`
+  const key  = sessionStorage.getItem('corvus_api_key')
+  return key ? `${base}?key=${encodeURIComponent(key)}` : base
+}
 
 interface UseWebSocketReturn {
   connected: boolean
@@ -27,7 +31,7 @@ export function useWebSocket(
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(wsUrl())
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 

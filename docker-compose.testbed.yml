@@ -1,0 +1,141 @@
+# docker-compose.testbed.yml — Corvus evaluation testbed overlay.
+#
+# Adds the 5-node victim mesh, attacker, DNS, and NTP to the core IDS.
+# Also attaches the inference engine to ids_net so the /dev/fast-baseline
+# endpoint can exec scripts on node containers.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.testbed.yml up -d
+#
+# The ids_net subnet (172.20.0.0/24) is defined here — it only exists when
+# the testbed overlay is loaded. The core IDS has no dependency on it.
+
+services:
+
+  # Extend inference from the core compose to also join ids_net.
+  # This gives it the static IP needed by scenario scripts and
+  # allows /dev/fast-baseline to reach node containers by name.
+  inference:
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.31
+
+  # ── Victim nodes (5-node mesh) ────────────────────────────────────────────
+  # Each node runs nginx + sshd + a traffic generator that exchanges HTTP,
+  # SSH, DNS, and NTP traffic with its peers, simulating a realistic internal
+  # segment. Attack scenarios target all 5 nodes simultaneously.
+
+  node_1:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_1
+    environment:
+      - NODE_IP=172.20.0.10
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=1
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.10
+    depends_on: [dns, ntp]
+
+  node_2:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_2
+    environment:
+      - NODE_IP=172.20.0.11
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=2
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.11
+    depends_on: [dns, ntp]
+
+  node_3:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_3
+    environment:
+      - NODE_IP=172.20.0.12
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=3
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.12
+    depends_on: [dns, ntp]
+
+  node_4:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_4
+    environment:
+      - NODE_IP=172.20.0.13
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=4
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.13
+    depends_on: [dns, ntp]
+
+  node_5:
+    build:
+      context: .
+      dockerfile: victim_node/Dockerfile
+    container_name: ids_node_5
+    environment:
+      - NODE_IP=172.20.0.14
+      - PEERS=172.20.0.10,172.20.0.11,172.20.0.12,172.20.0.13,172.20.0.14
+      - CLIENT_ID=5
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.14
+    depends_on: [dns, ntp]
+
+  # ── UDP infrastructure ────────────────────────────────────────────────────
+
+  dns:
+    build:
+      context: ./dns
+      dockerfile: Dockerfile
+    container_name: ids_dns
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.50
+
+  ntp:
+    build:
+      context: ./ntp
+      dockerfile: Dockerfile
+    container_name: ids_ntp
+    cap_add:
+      - SYS_TIME
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.51
+
+  # ── Attacker ──────────────────────────────────────────────────────────────
+
+  attacker:
+    build:
+      context: ./attacker
+      dockerfile: Dockerfile
+    container_name: ids_attacker
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      ids_net:
+        ipv4_address: 172.20.0.20
+
+networks:
+  ids_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
