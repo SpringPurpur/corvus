@@ -41,6 +41,82 @@ export function SettingsPanel({ onClose }: Props) {
   const [fbState, setFbState]     = useState<'idle' | 'running' | 'ok' | 'err'>('idle')
   const [fbMsg, setFbMsg]         = useState<string | null>(null)
 
+  // Feedback history
+  interface FeedbackEntry {
+    flow_id: string; ts: number; corrected_label: string | null
+    dismiss: boolean; reason: string | null; analyst_text: string | null
+  }
+  const [feedbackLog, setFeedbackLog]   = useState<FeedbackEntry[] | null>(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+
+  const loadFeedback = useCallback(async () => {
+    setFeedbackLoading(true)
+    try {
+      const r = await fetch('/feedback')
+      setFeedbackLog(await r.json())
+    } catch { setFeedbackLog([]) }
+    finally { setFeedbackLoading(false) }
+  }, [])
+
+  // Scenario runner
+  interface PhaseRecord {
+    phase_id: number; run_id: string; scenario: string; phase: string
+    t_start: number; t_end: number | null; attacker_ip: string | null
+  }
+  const [phases, setPhases]             = useState<PhaseRecord[]>([])
+  const [activePhase, setActivePhase]   = useState<{ id: number; label: string } | null>(null)
+  const [phaseRunId, setPhaseRunId]     = useState('run-001')
+  const [phaseScenario, setPhaseScenario] = useState('portscan')
+  const [phaseType, setPhaseType]       = useState('baseline')
+  const [phaseAttackerIp, setPhaseAttackerIp] = useState('')
+  const [phaseMsg, setPhaseMsg]         = useState<string | null>(null)
+  const [phaseBusy, setPhaseBusy]       = useState(false)
+
+  const loadPhases = useCallback(async () => {
+    try {
+      const r = await fetch('/phases')
+      setPhases(await r.json())
+    } catch { /* leave stale */ }
+  }, [])
+
+  useEffect(() => { loadPhases() }, [loadPhases])
+
+  const handleOpenPhase = useCallback(async () => {
+    setPhaseBusy(true); setPhaseMsg(null)
+    try {
+      const r = await fetch('/phases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          run_id: phaseRunId, scenario: phaseScenario, phase: phaseType,
+          t_start: Date.now() / 1000,
+          attacker_ip: phaseAttackerIp.trim() || null,
+        }),
+      })
+      const d = await r.json()
+      setActivePhase({ id: d.phase_id, label: `${phaseType} / ${phaseScenario}` })
+      setPhaseMsg(`Phase opened (id ${d.phase_id})`)
+      loadPhases()
+    } catch { setPhaseMsg('Request failed.') }
+    finally { setPhaseBusy(false) }
+  }, [phaseRunId, phaseScenario, phaseType, phaseAttackerIp, loadPhases])
+
+  const handleClosePhase = useCallback(async () => {
+    if (!activePhase) return
+    setPhaseBusy(true); setPhaseMsg(null)
+    try {
+      await fetch(`/phases/${activePhase.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ t_end: Date.now() / 1000 }),
+      })
+      setPhaseMsg(`Phase ${activePhase.id} closed.`)
+      setActivePhase(null)
+      loadPhases()
+    } catch { setPhaseMsg('Close failed.') }
+    finally { setPhaseBusy(false) }
+  }, [activePhase, loadPhases])
+
   // Capture configuration state
   const [capIfaces, setCapIfaces]       = useState<CaptureIface[] | null>(null)
   const [capIfaceErr, setCapIfaceErr]   = useState<string | null>(null)
@@ -441,6 +517,148 @@ export function SettingsPanel({ onClose }: Props) {
                 </span>
               </a>
             </div>
+          </section>
+
+          {/* ── Scenario runner ───────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
+              Scenario Runner
+            </h3>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Mark evaluation phases in the database. Phase records align
+              alert timestamps with attack windows for offline analysis.
+            </p>
+
+            {/* Active phase indicator */}
+            {activePhase && (
+              <div className="flex items-center gap-2 px-3 py-2 text-[11px]"
+                style={{ borderRadius: 'var(--radius)', borderLeft: '2px solid var(--color-badge-danger-text)', backgroundColor: 'var(--color-sev-crit-bg)' }}>
+                <span className="h-1.5 w-1.5 rounded-full animate-pulse shrink-0" style={{ backgroundColor: 'var(--color-badge-danger-text)' }} />
+                <span className="flex-1 font-medium" style={{ color: 'var(--color-badge-danger-text)' }}>
+                  Recording: {activePhase.label}
+                </span>
+                <button
+                  onClick={handleClosePhase}
+                  disabled={phaseBusy}
+                  className="px-2 py-0.5 text-[10px] font-medium transition-colors"
+                  style={{ backgroundColor: 'var(--color-badge-danger-text)', color: '#fff', borderRadius: 'var(--radius)', opacity: phaseBusy ? 0.5 : 1 }}
+                >
+                  Stop
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Run ID</span>
+                <input value={phaseRunId} onChange={e => setPhaseRunId(e.target.value)}
+                  className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
+                  style={{ borderRadius: 'var(--radius)' }} />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Scenario</span>
+                <input value={phaseScenario} onChange={e => setPhaseScenario(e.target.value)}
+                  className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
+                  style={{ borderRadius: 'var(--radius)' }} />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Phase type</span>
+                <select value={phaseType} onChange={e => setPhaseType(e.target.value)}
+                  className="bg-muted px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-border"
+                  style={{ borderRadius: 'var(--radius)' }}>
+                  {['baseline', 'attack', 'benign', 'recovery'].map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground">Attacker IP (optional)</span>
+                <input value={phaseAttackerIp} onChange={e => setPhaseAttackerIp(e.target.value)}
+                  placeholder="172.20.0.20"
+                  className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
+                  style={{ borderRadius: 'var(--radius)' }} />
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleOpenPhase}
+                disabled={phaseBusy || !!activePhase}
+                className="px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                style={{ backgroundColor: 'var(--color-accent)', borderRadius: 'var(--radius)', opacity: (phaseBusy || !!activePhase) ? 0.4 : 1 }}
+              >
+                Start Phase
+              </button>
+              {phaseMsg && <span className="text-[11px] text-muted-foreground">{phaseMsg}</span>}
+            </div>
+
+            {/* Recent phases log */}
+            {phases.length > 0 && (
+              <div className="flex flex-col gap-1 max-h-28 overflow-y-auto">
+                {[...phases].reverse().slice(0, 10).map(p => (
+                  <div key={p.phase_id} className="flex items-center gap-2 text-[10px] px-2 py-1 bg-muted/40"
+                    style={{ borderRadius: 'var(--radius)' }}>
+                    <span className="font-mono text-muted-foreground w-5 text-right">{p.phase_id}</span>
+                    <span className="font-medium">{p.phase}</span>
+                    <span className="text-muted-foreground">{p.scenario}</span>
+                    <span className="ml-auto font-mono text-muted-foreground">
+                      {p.t_end ? `${(p.t_end - p.t_start).toFixed(0)}s` : <span style={{ color: 'var(--color-badge-danger-text)' }}>open</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Feedback history ───────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <div className="flex items-center justify-between mt-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Feedback History
+              </h3>
+              <button
+                onClick={loadFeedback}
+                disabled={feedbackLoading}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {feedbackLoading ? 'Loading…' : feedbackLog === null ? 'Load' : 'Refresh'}
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Analyst corrections stored for offline evaluation. Not currently
+              fed back into the live model (ground-truth log only).
+            </p>
+
+            {feedbackLog !== null && (
+              feedbackLog.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No feedback submitted yet.</p>
+              ) : (
+                <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                  {feedbackLog.map(f => (
+                    <div key={f.flow_id} className="flex flex-col gap-0.5 text-[10px] px-2 py-1.5 bg-muted/40"
+                      style={{ borderRadius: 'var(--radius)' }}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="px-1 py-0.5 font-medium"
+                          style={{
+                            backgroundColor: f.dismiss ? 'var(--color-badge-warn-bg)' : 'var(--color-sev-info-bg)',
+                            color: f.dismiss ? 'var(--color-badge-warn-text)' : 'var(--color-sev-info-text)',
+                            borderRadius: 'calc(var(--radius)/2)',
+                          }}
+                        >
+                          {f.dismiss ? 'FP dismiss' : f.corrected_label ?? 'correction'}
+                        </span>
+                        <span className="font-mono text-muted-foreground truncate flex-1">{f.flow_id.slice(0, 16)}…</span>
+                        <span className="text-muted-foreground shrink-0">
+                          {new Date(f.ts * 1000).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {f.reason && <span className="text-muted-foreground pl-1">{f.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
           </section>
 
           {/* ── System ────────────────────────────────────────────────── */}

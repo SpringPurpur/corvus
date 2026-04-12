@@ -30,12 +30,19 @@ interface Props {
   checked:          Set<string>
   onCheckedChange:  Dispatch<SetStateAction<Set<string>>>
   onBulkDismiss:    (flowIds: string[]) => void
+  paused:           boolean
+  onTogglePause:    () => void
+  newWhilePaused:   number
+  searchQuery:      string
+  onSearchChange:   (q: string) => void
 }
 
 export function AlertFeed({
   alerts, selected, onSelect,
   showAll, onToggleShowAll, entityFilter,
   checked, onCheckedChange, onBulkDismiss,
+  paused, onTogglePause, newWhilePaused,
+  searchQuery, onSearchChange,
 }: Props) {
   const visible = showAll
     ? alerts
@@ -66,14 +73,42 @@ export function AlertFeed({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Filter control strip */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-card shrink-0">
-        <span className="text-[10px] text-muted-foreground">
-          {entityFilter ? `Filtered: ${entityFilter}` : `${visible.length} flow${visible.length !== 1 ? 's' : ''}`}
+      {/* Filter / search / pause strip */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-card shrink-0">
+        {/* Search */}
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => onSearchChange(e.target.value)}
+          placeholder="Search IP or port…"
+          className="flex-1 bg-muted px-2 py-0.5 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-border min-w-0"
+          style={{ borderRadius: 'var(--radius)' }}
+        />
+        {/* Flow count / pause indicator */}
+        <span className="text-[10px] text-muted-foreground shrink-0">
+          {paused && newWhilePaused > 0
+            ? <span style={{ color: 'var(--color-badge-warn-text)' }}>{newWhilePaused} new</span>
+            : `${visible.length} flow${visible.length !== 1 ? 's' : ''}`}
         </span>
+        {/* Pause button */}
+        <button
+          onClick={onTogglePause}
+          title={paused ? 'Resume live feed' : 'Pause feed'}
+          className="text-[10px] px-2 py-0.5 transition-colors shrink-0"
+          style={{
+            background: paused ? 'var(--color-badge-warn-bg)' : 'transparent',
+            color: paused ? 'var(--color-badge-warn-text)' : 'var(--color-muted-foreground, #888)',
+            border: '1px solid',
+            borderColor: paused ? 'var(--color-badge-warn-bdr)' : 'var(--border, #333)',
+            borderRadius: 'var(--radius)',
+          }}
+        >
+          {paused ? '▶ Resume' : '⏸ Pause'}
+        </button>
+        {/* All / alerts toggle */}
         <button
           onClick={onToggleShowAll}
-          className="text-[10px] px-2 py-0.5 rounded transition-colors"
+          className="text-[10px] px-2 py-0.5 transition-colors shrink-0"
           style={{
             background: showAll ? 'var(--color-accent)' : 'transparent',
             color: showAll ? '#fff' : 'var(--color-muted-foreground, #888)',

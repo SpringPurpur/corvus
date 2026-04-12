@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Alert, AppConfig, WsMessage, FeedbackMsg, LlmRequestMsg } from './types'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAlerts } from './hooks/useAlerts'
@@ -38,6 +38,18 @@ function AppInner() {
   const [needsApiKey, setNeedsApiKey]     = useState(false)
   const [apiKeyInput, setApiKeyInput]     = useState('')
 
+  // Feed pause
+  const [paused, setPaused]           = useState(false)
+  const frozenFeedRef                 = useRef<Alert[]>([])
+  const [newWhilePaused, setNewWhilePaused] = useState(0)
+  const allLenRef                     = useRef(0)
+
+  // Search query
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Notification gate — don't fire for history loaded at startup
+  const notifyEnabledRef = useRef(false)
+
   const { theme } = useTheme()
 
   const {
@@ -67,6 +79,31 @@ function AppInner() {
     setChecked(new Set())
   }
 
+  // Request notification permission once; enable after history load settles
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+    const t = setTimeout(() => { notifyEnabledRef.current = true }, 4000)
+    return () => clearTimeout(t)
+  }, [])
+
+  // Document title badge — total CRITICAL count
+  useEffect(() => {
+    const n = [...tcp, ...udp].filter(a => a.verdict.severity === 'CRITICAL').length
+    document.title = n > 0 ? `(${n}) Corvus IDS` : 'Corvus IDS'
+  }, [tcp, udp])
+
+  // Track new alerts that arrive while feed is paused
+  useEffect(() => {
+    const total = tcp.length + udp.length
+    if (paused) {
+      const diff = total - allLenRef.current
+      if (diff > 0) setNewWhilePaused(c => c + diff)
+    }
+    allLenRef.current = total
+  }, [tcp, udp, paused])
+
   useEffect(() => {
     fetch('/config').then(r => {
       if (r.status === 401) { setNeedsApiKey(true); return null }
@@ -90,6 +127,20 @@ function AppInner() {
       llmResponses[msg.request_id] = msg.text
       forceRender((n) => n + 1)
     }
+    // Browser notification for CRITICAL alerts (not during history load)
+    if (
+      msg.type === 'alert' &&
+      notifyEnabledRef.current &&
+      msg.data.verdict?.severity === 'CRITICAL' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      new Notification('Corvus IDS — Critical Alert', {
+        body: `${msg.data.src_ip} → ${msg.data.dst_ip}:${msg.data.dst_port}  (score ${msg.data.verdict.score?.toFixed(2) ?? '?'})`,
+        icon: '/favicon.ico',
+        tag: msg.data.flow_id,   // collapse duplicates for same flow
+      })
+    }
     handleMessage(msg)
   }
 
@@ -99,13 +150,31 @@ function AppInner() {
   const alerts = tab === 'TCP' ? tcp : udp
   const allAlerts = [...tcp, ...udp]
 
-  // Apply entity filter + bucket filter for the feed
-  const feedAlerts = useMemo(() => {
+  // Apply entity filter + severity bucket + search query
+  const liveFeedAlerts = useMemo(() => {
     let result = alerts
     if (entityFilter) result = result.filter((a) => a.src_ip === entityFilter)
     if (!showAll)     result = result.filter((a) => a.verdict.severity !== 'INFO')
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      result = result.filter((a) =>
+        a.src_ip.includes(q) ||
+        a.dst_ip.includes(q) ||
+        String(a.dst_port).includes(q) ||
+        String(a.src_port).includes(q)
+      )
+    }
     return result
-  }, [alerts, entityFilter, showAll])
+  }, [alerts, entityFilter, showAll, searchQuery])
+
+  // Pause: freeze the feed snapshot; track backlog count
+  const handleTogglePause = () => {
+    if (!paused) frozenFeedRef.current = liveFeedAlerts
+    setPaused(v => !v)
+    setNewWhilePaused(0)
+    allLenRef.current = tcp.length + udp.length
+  }
+  const feedAlerts = paused ? frozenFeedRef.current : liveFeedAlerts
 
   // Clear entity filter when switching tabs
   const handleTabChange = (t: 'TCP' | 'UDP' | 'Health' | 'Topology' | 'Incidents') => {
@@ -235,6 +304,11 @@ function AppInner() {
                 checked={checked}
                 onCheckedChange={setChecked}
                 onBulkDismiss={handleBulkDismiss}
+                paused={paused}
+                onTogglePause={handleTogglePause}
+                newWhilePaused={newWhilePaused}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
               />
             </div>
 
