@@ -30,6 +30,9 @@ function AppInner() {
   const [, forceRender]             = useState(0)
   const [entityFilter, setEntityFilter] = useState<string | null>(null)
   const [showAll, setShowAll]       = useState(false)
+  const [llmReady, setLlmReady]     = useState(false)
+  const [checked, setChecked]       = useState<Set<string>>(new Set())
+  const [clockOffsetMs, setClockOffsetMs] = useState(0)  // server_ms − host_ms
 
   const { theme } = useTheme()
 
@@ -50,8 +53,27 @@ function AppInner() {
     fetch('/queue', { method: 'DELETE' }).catch(() => {})
   }
 
+  const handleBulkDismiss = (flowIds: string[]) => {
+    if (flowIds.length === 0) return
+    fetch('/feedback/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flow_ids: flowIds, dismiss: true }),
+    }).catch(() => {})
+    setChecked(new Set())
+  }
+
   useEffect(() => {
     fetch('/config').then(r => r.json()).then(setConfig).catch(() => {})
+    fetch('/llm/status').then(r => r.json()).then(d => setLlmReady(!!d.available)).catch(() => {})
+    // Measure container ↔ host clock skew via NTP-style midpoint estimate.
+    // clockOffsetMs = serverTime − hostTime; subtract from t_ws_ns before
+    // computing "WS → browser" to avoid negative latency on WSL2/Hyper-V.
+    const t0 = Date.now()
+    fetch('/time').then(r => r.json()).then(({ ts }: { ts: number }) => {
+      const t1 = Date.now()
+      setClockOffsetMs(ts * 1000 - (t0 + t1) / 2)
+    }).catch(() => {})
   }, [])
 
   useEffect(() => { loadHistory() }, [loadHistory])
@@ -91,6 +113,7 @@ function AppInner() {
         connected={connected}
         captureUp={captureUp}
         modelsLoaded={modelsLoaded}
+        llmReady={llmReady}
         tcpCount={tcp.length}
         udpCount={udp.length}
         baselining={baselining}
@@ -150,6 +173,9 @@ function AppInner() {
                 showAll={showAll}
                 onToggleShowAll={() => setShowAll((v) => !v)}
                 entityFilter={entityFilter}
+                checked={checked}
+                onCheckedChange={setChecked}
+                onBulkDismiss={handleBulkDismiss}
               />
             </div>
 
@@ -157,7 +183,7 @@ function AppInner() {
             {selected && (
               <div className="w-96 flex flex-col border-r overflow-hidden shrink-0">
                 <div className="h-1/2 border-b overflow-hidden">
-                  <AlertDetail alert={selected} />
+                  <AlertDetail alert={selected} clockOffsetMs={clockOffsetMs} />
                 </div>
                 <div className="h-1/2 overflow-hidden">
                   <LLMPanel

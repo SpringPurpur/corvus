@@ -1,5 +1,6 @@
 import { cn } from '../lib/utils'
 import type { Alert, Severity } from '../types'
+import type { Dispatch, SetStateAction } from 'react'
 
 const SEV_VAR: Record<Severity, { bg: string; text: string }> = {
   INFO:     { bg: 'var(--color-sev-info-bg)',  text: 'var(--color-sev-info-text)'  },
@@ -26,13 +27,40 @@ interface Props {
   showAll:          boolean
   onToggleShowAll:  () => void
   entityFilter:     string | null
+  checked:          Set<string>
+  onCheckedChange:  Dispatch<SetStateAction<Set<string>>>
+  onBulkDismiss:    (flowIds: string[]) => void
 }
 
-export function AlertFeed({ alerts, selected, onSelect, showAll, onToggleShowAll, entityFilter }: Props) {
-  // Apply bucket filter: hide INFO rows unless showAll is true
+export function AlertFeed({
+  alerts, selected, onSelect,
+  showAll, onToggleShowAll, entityFilter,
+  checked, onCheckedChange, onBulkDismiss,
+}: Props) {
   const visible = showAll
     ? alerts
     : alerts.filter((a) => a.verdict.severity !== 'INFO')
+
+  const visibleIds = visible.map((a) => a.flow_id)
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => checked.has(id))
+  const someChecked = checked.size > 0
+
+  const toggleAll = () => {
+    if (allChecked) {
+      onCheckedChange(new Set())
+    } else {
+      onCheckedChange(new Set(visibleIds))
+    }
+  }
+
+  const toggleOne = (flowId: string) => {
+    onCheckedChange((prev) => {
+      const next = new Set(prev)
+      if (next.has(flowId)) next.delete(flowId)
+      else next.add(flowId)
+      return next
+    })
+  }
 
   const isEmpty = visible.length === 0
 
@@ -58,6 +86,33 @@ export function AlertFeed({ alerts, selected, onSelect, showAll, onToggleShowAll
         </button>
       </div>
 
+      {/* Bulk action bar — only visible when rows are checked */}
+      {someChecked && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/60 shrink-0">
+          <span className="text-[11px] text-muted-foreground flex-1">
+            {checked.size} selected
+          </span>
+          <button
+            onClick={() => onBulkDismiss([...checked])}
+            className="text-[11px] px-2.5 py-1 rounded bg-muted hover:bg-muted/80 transition-colors"
+          >
+            Dismiss selected
+          </button>
+          <button
+            onClick={() => onBulkDismiss(visibleIds)}
+            className="text-[11px] px-2.5 py-1 rounded bg-muted hover:bg-muted/80 transition-colors"
+          >
+            Dismiss all visible
+          </button>
+          <button
+            onClick={() => onCheckedChange(new Set())}
+            className="text-[11px] px-2 py-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {isEmpty ? (
         <div className="flex items-center justify-center flex-1 text-muted-foreground text-sm">
           {alerts.length === 0 ? 'Waiting for traffic…' : 'No HIGH / CRITICAL alerts yet'}
@@ -67,6 +122,15 @@ export function AlertFeed({ alerts, selected, onSelect, showAll, onToggleShowAll
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-card border-b">
               <tr className="text-muted-foreground">
+                <th className="px-3 py-2 w-6">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={toggleAll}
+                    className="h-3 w-3 accent-current"
+                    aria-label="Select all visible"
+                  />
+                </th>
                 <th className="text-left px-3 py-2 font-medium">Time</th>
                 <th className="text-left px-3 py-2 font-medium">Severity</th>
                 <th className="text-left px-3 py-2 font-medium">Anomaly</th>
@@ -85,6 +149,15 @@ export function AlertFeed({ alerts, selected, onSelect, showAll, onToggleShowAll
                     selected?.flow_id === a.flow_id && 'bg-muted/60',
                   )}
                 >
+                  <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={checked.has(a.flow_id)}
+                      onChange={() => toggleOne(a.flow_id)}
+                      className="h-3 w-3 accent-current"
+                      aria-label={`Select flow ${a.flow_id}`}
+                    />
+                  </td>
                   <td className="px-3 py-1.5 text-muted-foreground tabular-nums">
                     {new Date(a.ts * 1000).toLocaleTimeString()}
                   </td>

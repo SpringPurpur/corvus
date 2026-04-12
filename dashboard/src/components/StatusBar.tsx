@@ -4,6 +4,7 @@ interface Props {
   connected: boolean
   captureUp: boolean
   modelsLoaded: boolean
+  llmReady: boolean
   tcpCount: number
   udpCount: number
   baselining: boolean
@@ -26,7 +27,7 @@ function Dot({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCount, baselining, baselineProgress, queueDepth, onSettings, onClearLogs, onDrainQueue }: Props) {
+export function StatusBar({ connected, captureUp, modelsLoaded, llmReady, tcpCount, udpCount, baselining, baselineProgress, queueDepth, onSettings, onClearLogs, onDrainQueue }: Props) {
   return (
     <header className="flex items-center justify-between border-b px-4 py-2 bg-card">
       <div className="flex items-center gap-2">
@@ -36,6 +37,7 @@ export function StatusBar({ connected, captureUp, modelsLoaded, tcpCount, udpCou
         <Dot on={connected} label="WebSocket" />
         <Dot on={captureUp} label="Capture" />
         <Dot on={modelsLoaded} label="Models" />
+        <Dot on={llmReady} label="LLM" />
         {baselining && (
           <span
             className="flex items-center gap-1.5 text-xs ml-2"

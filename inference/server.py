@@ -60,6 +60,18 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/llm/status")
+async def llm_status() -> dict:
+    """Return whether the LLM integration is available.
+
+    Checks that ANTHROPIC_API_KEY is set and non-empty — no API call is made,
+    so this endpoint is free and instant.
+    """
+    import os
+    available = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    return {"available": available}
+
+
 class ConfigBody(BaseModel):
     threshold_high:     float
     threshold_critical: float
@@ -234,6 +246,23 @@ async def get_flows(
 @app.get("/feedback")
 async def get_feedback(flow_id: Optional[str] = Query(default=None)) -> list:
     return await run_in_threadpool(storage.query_feedback, flow_id=flow_id)
+
+
+class BulkFeedbackBody(BaseModel):
+    flow_ids:        list[str]
+    dismiss:         bool = True
+    corrected_label: Optional[str] = None
+    reason:          str = "Bulk dismissed as false positive"
+
+
+@app.post("/feedback/bulk")
+async def post_feedback_bulk(body: BulkFeedbackBody) -> dict:
+    """Write dismiss/correction feedback for multiple flows in a single transaction."""
+    n = await run_in_threadpool(
+        storage.upsert_feedback_bulk,
+        body.flow_ids, body.dismiss, body.corrected_label, body.reason,
+    )
+    return {"ok": True, "written": n}
 
 
 @app.delete("/flows")

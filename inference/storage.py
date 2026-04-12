@@ -300,6 +300,39 @@ def upsert_feedback(
             log.warning("Failed to upsert feedback for flow %s", flow_id, exc_info=True)
 
 
+def upsert_feedback_bulk(
+    flow_ids: list[str],
+    dismiss: bool = True,
+    corrected_label: str | None = None,
+    reason: str = "Bulk dismissed as false positive",
+) -> int:
+    """Persist feedback for multiple flows in a single transaction.
+
+    Returns the number of rows written.
+    """
+    if _conn is None or not flow_ids:
+        return 0
+    ts = __import__("time").time()
+    with _write_lock:
+        try:
+            _conn.executemany(
+                """
+                INSERT OR REPLACE INTO feedback
+                    (flow_id, ts, corrected_label, dismiss, reason, analyst_text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (fid, ts, corrected_label, int(dismiss), reason, None)
+                    for fid in flow_ids
+                ],
+            )
+            _conn.commit()
+            return len(flow_ids)
+        except Exception:
+            log.warning("Failed to upsert bulk feedback", exc_info=True)
+            return 0
+
+
 def query_feedback(flow_id: str | None = None) -> list[dict]:
     """Return feedback records, optionally filtered by flow_id."""
     if _conn is None:
