@@ -685,6 +685,29 @@ class MultiWindowOIF:
 
         return window_scores, attribution, oor_score
 
+    # ── false-positive feedback ───────────────────────────────────────────────
+
+    def reinforce_normal(self, raw: np.ndarray) -> None:
+        """Force-learn a flow as normal, bypassing the anomaly score threshold.
+
+        Called when an analyst marks a flow as a false positive. Passes the
+        feature vector directly to learn_one() on all window models so the trees
+        shift to treat similar flows as less anomalous — no retraining from
+        scratch required since the OIF is already incremental.
+        """
+        if not self._baseline_complete or not self._scaler_fitted:
+            log.warning("[%s OIF] reinforce_normal called before baseline — ignoring",
+                        self.protocol)
+            return
+        x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
+        for model in self._models:
+            model.learn_one(x_scaled)
+        self._n_trained += 1
+        log.info("[%s OIF] FP reinforced as normal (scaled_max=%.2f, n_trained=%d)",
+                 self.protocol, float(np.max(np.abs(x_scaled))), self._n_trained)
+        if self._n_trained % self._SAVE_INTERVAL == 0:
+            self.save()
+
     # ── path-depth attribution ────────────────────────────────────────────────
 
     def _attribute(
@@ -813,6 +836,50 @@ def reset_detector(protocol: str) -> None:
             baseline_flows=cfg.baseline_udp, save_path=pkl,
         )
         log.info("[UDP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_udp)
+
+
+def feedback_reinforce(flow_id: str, dismiss: bool) -> bool:
+    """Apply false-positive feedback to the appropriate OIF detector.
+
+    Retrieves the stored feature vector for the flow, reconstructs the numpy
+    array in the correct feature order, and calls reinforce_normal() to shift
+    the online trees toward treating similar flows as normal.
+
+    Only acts when dismiss=True — label corrections without dismissal do not
+    change the anomaly boundary (they're stored as ground-truth labels only).
+
+    Returns True if the update was applied, False otherwise.
+    """
+    if not dismiss:
+        return False
+
+    import storage as _storage  # late import — avoids circular dep at module load
+
+    result = _storage.get_flow_features(flow_id)
+    if result is None:
+        log.warning("[OIF] feedback_reinforce: no stored features for flow %s", flow_id)
+        return False
+
+    proto, feature_dict = result
+
+    if proto == "TCP":
+        detector = tcp_detector
+        feature_defs = TCP_IF_FEATURES
+    elif proto == "UDP":
+        detector = udp_detector
+        feature_defs = UDP_IF_FEATURES
+    else:
+        log.warning("[OIF] feedback_reinforce: unknown proto %s for flow %s", proto, flow_id)
+        return False
+
+    try:
+        raw = np.array([feature_dict[name] for name, _ in feature_defs], dtype=np.float64)
+    except KeyError as exc:
+        log.warning("[OIF] feedback_reinforce: missing feature %s for flow %s", exc, flow_id)
+        return False
+
+    detector.reinforce_normal(raw)
+    return True
 
 
 def process_flow(flow: dict) -> dict | None:

@@ -131,14 +131,21 @@ async def _receive_loop(ws: WebSocket, llm_handler: Any) -> None:
 
         if msg_type == "feedback":
             import storage
+            from online_detector import feedback_reinforce
+            flow_id = msg.get("flow_id", "")
+            dismiss = bool(msg.get("dismiss", False))
             storage.upsert_feedback(
-                flow_id=msg.get("flow_id", ""),
+                flow_id=flow_id,
                 ts=time.time(),
                 corrected_label=msg.get("corrected_label"),
-                dismiss=bool(msg.get("dismiss", False)),
+                dismiss=dismiss,
                 reason=msg.get("reason", ""),
             )
-            log.info("Feedback stored for flow_id=%s", msg.get("flow_id"))
+            log.info("Feedback stored for flow_id=%s dismiss=%s", flow_id, dismiss)
+            if dismiss:
+                # Reinforce the OIF — feed the FP flow back as a normal training sample
+                applied = feedback_reinforce(flow_id, dismiss=True)
+                log.info("FP feedback reinforce flow_id=%s applied=%s", flow_id, applied)
 
         elif msg_type == "llm_request":
             # Browser asks for an LLM explanation — call async and reply

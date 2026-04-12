@@ -109,6 +109,9 @@ def init_db() -> None:
     if "t_enqueue_ns" not in cols:
         _conn.execute("ALTER TABLE flows ADD COLUMN t_enqueue_ns INTEGER")
         log.info("Migrated flows table: added t_enqueue_ns column (true IPC start time)")
+    if "features" not in cols:
+        _conn.execute("ALTER TABLE flows ADD COLUMN features TEXT")
+        log.info("Migrated flows table: added features column (OIF feature vector for FP feedback)")
     _conn.commit()
     log.info("SQLite DB ready at %s", DB_PATH)
 
@@ -132,9 +135,9 @@ def insert_flow(alert: dict) -> None:
                      proto, duration, fwd_pkts,
                      label, severity, confidence,
                      score_fast, score_medium, score_slow, score_comp, score_oor,
-                     attribution, shap,
+                     attribution, shap, features,
                      t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     alert["flow_id"], alert["ts"],
@@ -146,6 +149,7 @@ def insert_flow(alert: dict) -> None:
                     s.get("oor"),
                     json.dumps(alert.get("attribution", [])),
                     json.dumps(alert.get("shap", [])),
+                    json.dumps(alert.get("features", {})),
                     t.get("t_enqueue_ns"), t.get("t_socket_ns"),
                     t.get("t_dequeue_ns"), t.get("t_scored_ns"),
                 ),
@@ -272,6 +276,28 @@ def query_flows(
         read_conn.close()
 
     return [_row_to_alert(r) for r in rows]
+
+
+def get_flow_features(flow_id: str) -> tuple[str, dict] | None:
+    """Return (proto, feature_dict) for a stored flow, or None if not found.
+
+    Used by the FP feedback loop to retrieve the OIF feature vector so
+    reinforce_normal() can be called without recomputing it from the raw flow.
+    """
+    if _conn is None:
+        return None
+    read_conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=10.0)
+    read_conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        row = read_conn.execute(
+            "SELECT proto, features FROM flows WHERE flow_id=? LIMIT 1",
+            (flow_id,),
+        ).fetchone()
+        if row is None or not row[1]:
+            return None
+        return row[0], json.loads(row[1])
+    finally:
+        read_conn.close()
 
 
 def upsert_feedback(

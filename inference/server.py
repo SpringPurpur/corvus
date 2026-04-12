@@ -315,11 +315,29 @@ class BulkFeedbackBody(BaseModel):
 
 @app.post("/feedback/bulk")
 async def post_feedback_bulk(body: BulkFeedbackBody) -> dict:
-    """Write dismiss/correction feedback for multiple flows in a single transaction."""
+    """Write dismiss/correction feedback for multiple flows in a single transaction.
+
+    When dismiss=True each flow's stored feature vector is fed back into the
+    OIF as a normal training sample, shifting the anomaly boundary away from
+    traffic patterns similar to these false positives.
+    """
+    from online_detector import feedback_reinforce
+
     n = await run_in_threadpool(
         storage.upsert_feedback_bulk,
         body.flow_ids, body.dismiss, body.corrected_label, body.reason,
     )
+
+    if body.dismiss:
+        def _reinforce_all() -> int:
+            return sum(
+                1 for fid in body.flow_ids
+                if feedback_reinforce(fid, dismiss=True)
+            )
+        reinforced = await run_in_threadpool(_reinforce_all)
+        log.info("Bulk FP feedback: %d/%d flows reinforced in OIF", reinforced, len(body.flow_ids))
+        return {"ok": True, "written": n, "reinforced": reinforced}
+
     return {"ok": True, "written": n}
 
 
