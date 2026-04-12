@@ -144,8 +144,9 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
 
 static void usage(const char *prog)
 {
-    fprintf(stderr, "Usage: %s -i <interface>\n", prog);
-    fprintf(stderr, "  -i eth0    capture interface\n");
+    fprintf(stderr, "Usage: %s -i <interface> [-f <bpf-filter>]\n", prog);
+    fprintf(stderr, "  -i eth0              capture interface\n");
+    fprintf(stderr, "  -f 'not host 1.2.3'  extra BPF pre-filter (ANDed with base filter)\n");
     exit(1);
 }
 
@@ -153,11 +154,14 @@ static void usage(const char *prog)
 
 int main(int argc, char *argv[])
 {
-    const char *iface = NULL;
+    const char *iface       = NULL;
+    const char *extra_filter = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-i") == 0 && i + 1 < argc)
             iface = argv[++i];
+        else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc)
+            extra_filter = argv[++i];
         else
             usage(argv[0]);
     }
@@ -180,9 +184,20 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Only capture IPv4 TCP and UDP — everything else is out of scope
+    // Base filter: only IPv4 TCP and UDP. If the operator supplied an extra
+    // BPF expression, AND it in so packets matching neither are dropped in
+    // kernel before reaching userspace — reducing CPU load on noisy links.
+    char filter_expr[4096];
+    if (extra_filter && *extra_filter) {
+        snprintf(filter_expr, sizeof(filter_expr),
+                 "ip and (tcp or udp) and (%s)", extra_filter);
+    } else {
+        snprintf(filter_expr, sizeof(filter_expr), "ip and (tcp or udp)");
+    }
+    fprintf(stderr, "[capture] BPF filter: %s\n", filter_expr);
+
     struct bpf_program fp;
-    if (pcap_compile(g_pcap, &fp, "ip and (tcp or udp)", 1, PCAP_NETMASK_UNKNOWN) < 0) {
+    if (pcap_compile(g_pcap, &fp, filter_expr, 1, PCAP_NETMASK_UNKNOWN) < 0) {
         fprintf(stderr, "[capture] pcap_compile: %s\n", pcap_geterr(g_pcap));
         return 1;
     }
