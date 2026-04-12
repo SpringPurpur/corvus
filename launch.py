@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-launch.py — start the full Corvus IDS stack and open the dashboard.
+launch.py — start the Corvus IDS stack and open the dashboard.
 
 Build order:
   1. npm install + npm run build  (host, skipped if dist/ is up to date)
-  2. docker compose up -d          (starts inference, monitor, targets, attacker)
+  2. docker compose up -d          (starts inference + monitor, plus testbed if --testbed)
   3. wait for /health             (inference engine ready)
   4. open dashboard in browser
 
 Flags:
-  --build   Force-rebuild Docker images before starting (use after code changes).
-            Without this flag, existing images are reused — startup is much faster.
+  --build    Force-rebuild Docker images before starting (use after code changes).
+             Without this flag, existing images are reused — startup is much faster.
+  --testbed  Also start the evaluation testbed overlay (victim nodes, attacker,
+             DNS, NTP). Equivalent to adding -f docker-compose.testbed.yml.
 """
 
 import argparse
@@ -24,9 +26,10 @@ import urllib.request
 # On Windows, npm/npx are batch scripts (.cmd) — not directly executable
 NPM = "npm.cmd" if platform.system() == "Windows" else "npm"
 
-ROOT       = os.path.dirname(__file__)
-COMPOSE    = os.path.join(ROOT, "docker-compose.yml")
-DASHBOARD  = os.path.join(ROOT, "dashboard")
+ROOT            = os.path.dirname(__file__)
+COMPOSE         = os.path.join(ROOT, "docker-compose.yml")
+COMPOSE_TESTBED = os.path.join(ROOT, "docker-compose.testbed.yml")
+DASHBOARD       = os.path.join(ROOT, "dashboard")
 URL        = "http://localhost:8765"
 HEALTH     = "http://localhost:8765/health"
 
@@ -100,17 +103,26 @@ if __name__ == "__main__":
         "--build", action="store_true",
         help="Rebuild Docker images before starting (needed after source changes).",
     )
+    parser.add_argument(
+        "--testbed", action="store_true",
+        help="Also start the evaluation testbed (victim nodes, attacker, DNS, NTP).",
+    )
     args = parser.parse_args()
 
     build_dashboard()
 
-    compose_cmd = ["docker", "--context", "default", "compose", "-f", COMPOSE,
-                   "up", "-d", "--remove-orphans"]
+    compose_cmd = ["docker", "--context", "default", "compose",
+                   "-f", COMPOSE]
+    if args.testbed:
+        compose_cmd += ["-f", COMPOSE_TESTBED]
+
+    compose_cmd += ["up", "-d", "--remove-orphans"]
+
     if args.build:
         compose_cmd.append("--build")
-        print("[launch] Starting Corvus IDS stack (rebuilding images)...")
-    else:
-        print("[launch] Starting Corvus IDS stack (using existing images)...")
+
+    mode = "IDS + testbed" if args.testbed else "IDS core"
+    print(f"[launch] Starting Corvus {mode} ({'rebuilding images' if args.build else 'using existing images'})...")
 
     subprocess.run(compose_cmd, check=True)
 
