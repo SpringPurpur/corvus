@@ -149,9 +149,18 @@ export function SettingsPanel({ onClose }: Props) {
       if (!r.ok) {
         setCapMsgOk(false)
         setCapMsg(body.detail ?? 'Apply failed.')
+      } else if (body.warning) {
+        setCapMsgOk(true)
+        setCapMsg(`Config saved. ${body.warning}`)
+      } else if (body.engine === 'running') {
+        setCapMsgOk(true)
+        setCapMsg('Applied — capture engine running.')
+      } else if (body.engine === 'failed') {
+        setCapMsgOk(false)
+        setCapMsg('Config saved but engine failed to restart — check interface name.')
       } else {
         setCapMsgOk(true)
-        setCapMsg(body.warning ? `Applied (${body.warning})` : 'Applied — capture engine restarting.')
+        setCapMsg('Config saved.')
       }
     } catch {
       setCapMsgOk(false)
@@ -691,7 +700,7 @@ export function SettingsPanel({ onClose }: Props) {
                 )}
                 style={{ backgroundColor: 'var(--color-accent)', borderRadius: 'var(--radius)' }}
               >
-                {capApplying ? 'Applying…' : 'Apply'}
+                {capApplying ? 'Validating & restarting…' : 'Apply'}
               </button>
               {capMsg && (
                 <span

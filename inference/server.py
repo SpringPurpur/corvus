@@ -631,49 +631,98 @@ class CaptureConfigBody(BaseModel):
 
 @app.post("/capture/config")
 async def post_capture_config(body: CaptureConfigBody) -> dict:
-    """Write capture.json and optionally set promisc + restart the capture engine.
+    """Validate filter, write capture.json, restart engine, confirm it came back up.
 
-    The monitor container's start.sh restart loop reads capture.json on every
-    iteration, so killing capture_engine is enough to apply the new config.
+    Steps (all via Docker exec on the monitor container):
+      1. Validate BPF filter with tcpdump -d (same libpcap as the engine).
+         Returns HTTP 400 with the libpcap error message on invalid syntax.
+      2. Write capture.json.
+      3. Optionally set the interface promiscuous (persists across engine restarts).
+      4. Kill the running capture_engine via its PID file.
+      5. Poll /tmp/capture_engine.pid for up to 6 s to confirm the new engine
+         started.  Returns engine="running" | "failed" | "not_restarted".
     """
+    import time as _time
+
     cfg: dict = {}
     if body.interface:
         cfg["interface"] = body.interface
     if body.filter:
         cfg["filter"] = body.filter
-    _write_capture_cfg(cfg)
-
-    if not body.restart and not body.promisc:
-        return {"ok": True, "config": cfg}
 
     try:
         import docker as docker_sdk
     except ImportError:
-        # Config written; caller must restart the container manually.
-        return {"ok": True, "config": cfg, "warning": "docker SDK not installed — restart monitor manually"}
+        _write_capture_cfg(cfg)
+        return {"ok": True, "config": cfg,
+                "warning": "docker SDK not installed — restart monitor manually"}
 
-    def _apply() -> None:
-        client = docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")
+    def _apply() -> dict:
+        client = _docker_client()
         try:
             container = client.containers.get(_MONITOR_CONTAINER)
+
+            # ── 1. Validate BPF filter ────────────────────────────────────
+            if body.filter:
+                full_filter = f"ip and (tcp or udp) and ({body.filter})"
+                r = container.exec_run(
+                    ["tcpdump", "-d", full_filter],
+                    stdout=True, stderr=True,
+                )
+                if r.exit_code != 0:
+                    err = r.output.decode(errors="replace").strip()
+                    raise ValueError(err)
+
+            # ── 2. Write config ───────────────────────────────────────────
+            _write_capture_cfg(cfg)
+
+            if not body.restart:
+                return {"ok": True, "config": cfg, "engine": "not_restarted"}
+
+            # ── 3. Set promisc if requested ───────────────────────────────
             if body.interface and body.promisc:
                 container.exec_run(
                     ["ip", "link", "set", body.interface, "promisc", "on"],
                     detach=False,
                 )
                 log.info("[capture] set %s promisc on", body.interface)
-            if body.restart:
-                container.exec_run(
-                    ["sh", "-c", "kill $(cat /tmp/capture_engine.pid 2>/dev/null) 2>/dev/null; true"],
+
+            # ── 4. Kill running engine ────────────────────────────────────
+            container.exec_run(
+                ["sh", "-c",
+                 "kill $(cat /tmp/capture_engine.pid 2>/dev/null) 2>/dev/null; true"],
+                detach=False,
+            )
+            log.info("[capture] capture_engine signalled, waiting for restart")
+
+            # ── 5. Poll for new engine (start.sh sleeps 3 s before restart)
+            # Poll every 0.5 s, up to 6 s total.
+            engine = "failed"
+            for _ in range(12):
+                _time.sleep(0.5)
+                r = container.exec_run(
+                    ["sh", "-c",
+                     "[ -f /tmp/capture_engine.pid ]"
+                     " && kill -0 $(cat /tmp/capture_engine.pid) 2>/dev/null"
+                     " && echo running || echo stopped"],
                     detach=False,
                 )
-                log.info("[capture] capture_engine signalled via pid file")
+                if r.output.decode().strip() == "running":
+                    engine = "running"
+                    break
+
+            log.info("[capture] engine status after restart: %s", engine)
+            return {"ok": True, "config": cfg, "engine": engine}
+
         finally:
             client.close()
 
     try:
-        await run_in_threadpool(_apply)
-        return {"ok": True, "config": cfg}
+        result = await run_in_threadpool(_apply)
+        return result
+    except ValueError as exc:
+        # BPF filter rejected by libpcap
+        raise HTTPException(400, f"Invalid BPF filter: {exc}")
     except Exception as exc:
         log.error("[capture] config apply failed: %s", exc)
         raise HTTPException(500, str(exc))
