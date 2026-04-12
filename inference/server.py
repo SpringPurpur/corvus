@@ -478,8 +478,10 @@ def _write_capture_cfg(data: dict) -> None:
 async def get_capture_interfaces() -> dict:
     """List network interfaces visible to the monitor container via Docker exec.
 
-    Returns the current capture.json config alongside so the dashboard can
-    pre-select the currently active interface.
+    Returns three things so the dashboard can show a complete picture:
+      config  — what the analyst configured in capture.json (requested)
+      status  — what the monitor is actually running right now (_status key)
+      interfaces — live interface list from the monitor container
     Requires /var/run/docker.sock to be mounted.
     """
     try:
@@ -513,7 +515,10 @@ async def get_capture_interfaces() -> dict:
 
     try:
         ifaces = await run_in_threadpool(_list)
-        return {"interfaces": ifaces, "config": _read_capture_cfg()}
+        raw = _read_capture_cfg()
+        # Separate out the _status key written by monitor/start.sh
+        status = raw.pop("_status", {})
+        return {"interfaces": ifaces, "config": raw, "status": status}
     except Exception as exc:
         raise HTTPException(500, str(exc))
 

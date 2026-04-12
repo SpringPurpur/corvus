@@ -50,6 +50,8 @@ export function SettingsPanel({ onClose }: Props) {
   const [capApplying, setCapApplying]   = useState(false)
   const [capMsg, setCapMsg]             = useState<string | null>(null)
   const [capMsgOk, setCapMsgOk]         = useState(true)
+  // What the monitor is actually running right now (written by start.sh)
+  const [capStatus, setCapStatus]       = useState<{ interface?: string; filter?: string } | null>(null)
   const capFetchedRef = useRef(false)
 
   const { theme, setTheme } = useTheme()
@@ -71,10 +73,14 @@ export function SettingsPanel({ onClose }: Props) {
         if (!r.ok) return r.json().then((e) => { throw new Error(e.detail ?? `HTTP ${r.status}`) })
         return r.json()
       })
-      .then((d: { interfaces: CaptureIface[]; config: { interface?: string; filter?: string } }) => {
+      .then((d: { interfaces: CaptureIface[]; config: { interface?: string; filter?: string }; status: { interface?: string; filter?: string } }) => {
         setCapIfaces(d.interfaces)
-        if (d.config.interface) setCapSelected(d.config.interface)
-        if (d.config.filter)    setCapFilter(d.config.filter)
+        setCapStatus(d.status ?? null)
+        // Pre-fill from config (what was requested); fall back to running status
+        const iface  = d.config.interface  ?? d.status?.interface  ?? ''
+        const filter = d.config.filter     ?? d.status?.filter     ?? ''
+        setCapSelected(iface)
+        setCapFilter(filter)
       })
       .catch((err: Error) => setCapIfaceErr(err.message))
   }, [])
@@ -392,6 +398,23 @@ export function SettingsPanel({ onClose }: Props) {
               Changes are written to <span className="font-mono">capture.json</span> and
               applied immediately — no container restart needed.
             </p>
+
+            {/* Currently running status — sourced from _status in capture.json */}
+            {capStatus?.interface && (
+              <div className="flex flex-col gap-1 px-3 py-2 bg-muted/40 text-[11px]"
+                style={{ borderRadius: 'var(--radius)', borderLeft: '2px solid var(--color-count-trained)' }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: 'var(--color-count-trained)' }} />
+                  <span className="font-medium text-foreground">Running:</span>
+                  <span className="font-mono">{capStatus.interface}</span>
+                </div>
+                {capStatus.filter && (
+                  <div className="text-muted-foreground pl-3">
+                    filter: <span className="font-mono">{capStatus.filter}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {capIfaceErr ? (
               <div className="text-[11px] text-muted-foreground bg-muted/40 px-3 py-2"
