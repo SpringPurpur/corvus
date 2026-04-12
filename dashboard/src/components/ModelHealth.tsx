@@ -9,6 +9,71 @@ import type { OifMetrics, AppConfig, Alert } from '../types'
 import { WindowConsensus } from './WindowConsensus'
 import { HeatmapRibbon } from './HeatmapRibbon'
 
+// Histogram of composite scores binned into 20 buckets.
+// Dashed threshold lines mark HIGH and CRITICAL cutoffs.
+function ScoreHistogram({ alerts, thHigh, thCrit }: {
+  alerts: Alert[]
+  thHigh: number
+  thCrit: number
+}) {
+  if (alerts.length === 0) return null
+
+  const BINS = 20
+  const W    = BINS * 10   // viewBox units
+  const H    = 40
+
+  const counts = new Array(BINS).fill(0)
+  for (const a of alerts) {
+    const bin = Math.min(Math.floor(a.verdict.confidence * BINS), BINS - 1)
+    counts[bin]++
+  }
+  const maxCount = Math.max(...counts, 1)
+
+  return (
+    <div>
+      <div className="text-[10px] text-muted-foreground mb-1">
+        Score distribution{' '}
+        <span className="tabular-nums">({alerts.length.toLocaleString()} flows)</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+        {counts.map((c, i) => {
+          const barH  = Math.max((c / maxCount) * (H - 2), c > 0 ? 1 : 0)
+          const binMid = (i + 0.5) / BINS
+          const fill  =
+            binMid >= thCrit ? 'var(--color-score-crit)' :
+            binMid >= thHigh ? 'var(--color-score-high)' :
+                               'var(--color-score-normal)'
+          return (
+            <rect key={i}
+              x={i * 10 + 0.5} y={H - barH} width={9} height={barH}
+              fill={fill} rx={1}
+            >
+              <title>
+                {c} flow{c !== 1 ? 's' : ''} · {((i / BINS) * 100).toFixed(0)}–{(((i + 1) / BINS) * 100).toFixed(0)}%
+              </title>
+            </rect>
+          )
+        })}
+        {/* HIGH threshold */}
+        <line
+          x1={thHigh * W} y1={0} x2={thHigh * W} y2={H}
+          stroke="var(--color-score-high)" strokeWidth={1.5}
+          strokeDasharray="3 2" opacity={0.9}
+        />
+        {/* CRITICAL threshold */}
+        <line
+          x1={thCrit * W} y1={0} x2={thCrit * W} y2={H}
+          stroke="var(--color-score-crit)" strokeWidth={1.5}
+          strokeDasharray="3 2" opacity={0.9}
+        />
+      </svg>
+      <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+        <span>0</span><span>0.5</span><span>1.0</span>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   tcp:       OifMetrics
   udp:       OifMetrics
@@ -140,6 +205,11 @@ function ProtocolPanel({ label, proto, m, alerts, thHigh, thCrit, config }: {
           <span className="tabular-nums font-medium">{(m.score_p95 * 100).toFixed(1)}%</span>
         </div>
       </div>
+
+      {/* Score distribution histogram */}
+      {alerts.length > 0 && (
+        <ScoreHistogram alerts={alerts} thHigh={thHigh} thCrit={thCrit} />
+      )}
 
       {/* Sparkline — last 20 composite scores */}
       <div>
