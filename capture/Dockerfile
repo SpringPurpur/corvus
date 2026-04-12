@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     valgrind \
     curl \
     iproute2 \
+    procps \
     tcpdump \
     && rm -rf /var/lib/apt/lists/*
 

@@ -663,8 +663,11 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
                 )
                 log.info("[capture] set %s promisc on", body.interface)
             if body.restart:
-                container.exec_run(["pkill", "-f", "capture_engine"], detach=True)
-                log.info("[capture] capture_engine restarted via pkill")
+                container.exec_run(
+                    ["sh", "-c", "kill $(cat /tmp/capture_engine.pid 2>/dev/null) 2>/dev/null; true"],
+                    detach=False,
+                )
+                log.info("[capture] capture_engine signalled via pid file")
         finally:
             client.close()
 

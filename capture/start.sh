@@ -150,7 +150,10 @@ with open(path, 'w') as f:
 # ── Restart loop ──────────────────────────────────────────────────────────────
 # Keeps the container alive after any exit. Interface and filter are
 # re-selected on each restart so changes written by the dashboard take effect
-# without a full container restart.
+# without a full container restart — the inference engine sends a kill signal
+# via /tmp/capture_engine.pid rather than pkill (more reliable, no procps dep).
+
+PID_FILE=/tmp/capture_engine.pid
 
 while true; do
     IFACE=$(select_interface) || { sleep 5; continue; }
@@ -168,7 +171,13 @@ while true; do
 
     echo "[monitor] Starting capture on $IFACE..."
     # shellcheck disable=SC2086
-    "$BINARY" -i "$IFACE" $FILTER_ARGS
-    echo "[monitor] capture_engine exited (code $?), restarting in 3s..."
+    "$BINARY" -i "$IFACE" $FILTER_ARGS &
+    CAPTURE_PID=$!
+    echo "$CAPTURE_PID" > "$PID_FILE"
+
+    wait "$CAPTURE_PID"
+    EXIT_CODE=$?
+    rm -f "$PID_FILE"
+    echo "[monitor] capture_engine exited (code $EXIT_CODE), restarting in 3s..."
     sleep 3
 done

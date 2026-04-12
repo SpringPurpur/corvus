@@ -610,6 +610,15 @@ export function SettingsPanel({ onClose }: Props) {
               </div>
             )}
 
+            {/* Testbed hint */}
+            {capIfaces !== null && capIfaces.some((i) => i.name.startsWith('br-')) && (
+              <p className="text-[10px] text-muted-foreground bg-muted/40 px-2 py-1.5"
+                style={{ borderRadius: 'var(--radius)' }}>
+                Testbed detected — use the <span className="font-mono">br-</span> bridge, not <span className="font-mono">docker0</span>.
+                Docker creates a named bridge per compose network; <span className="font-mono">docker0</span> carries only standalone containers.
+              </p>
+            )}
+
             {/* Manual entry if not in list / no Docker */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-muted-foreground">
@@ -641,7 +650,10 @@ export function SettingsPanel({ onClose }: Props) {
             {/* Set promiscuous toggle */}
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-muted-foreground">
-                Set interface promiscuous on apply
+                Persist promiscuous flag on host
+                <span className="block text-[10px] opacity-60">
+                  libpcap sets promisc automatically — only needed for Mode 2 auto-detection
+                </span>
               </span>
               <button
                 onClick={() => setCapPromisc((v) => !v)}
