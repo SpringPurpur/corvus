@@ -6,6 +6,9 @@ capture/inspect_ipc
 capture/test_features
 *.o *.a *.so
 
+# Auto-generated capture engine network interface file
+capture.json
+
 # Python
 __pycache__/
 *.pyc
