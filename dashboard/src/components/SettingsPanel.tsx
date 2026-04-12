@@ -5,7 +5,7 @@
 // per-flow with no restart needed). Baseline reset discards the trained
 // OIF model and re-baselines on the next N flows of live traffic.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppConfig } from '../types'
 import { cn } from '../lib/utils'
 import { THEMES } from '../themes'
@@ -26,6 +26,12 @@ const DEFAULT_CFG: AppConfig = {
   filter_gateway:     false,
 }
 
+interface CaptureIface {
+  name: string
+  up: boolean
+  promisc: boolean
+}
+
 export function SettingsPanel({ onClose }: Props) {
   const [cfg, setCfg]             = useState<AppConfig>(DEFAULT_CFG)
   const [saving, setSaving]       = useState(false)
@@ -34,6 +40,17 @@ export function SettingsPanel({ onClose }: Props) {
   const [devMode, setDevMode]     = useState(() => localStorage.getItem(DEV_STORAGE_KEY) === '1')
   const [fbState, setFbState]     = useState<'idle' | 'running' | 'ok' | 'err'>('idle')
   const [fbMsg, setFbMsg]         = useState<string | null>(null)
+
+  // Capture configuration state
+  const [capIfaces, setCapIfaces]       = useState<CaptureIface[] | null>(null)
+  const [capIfaceErr, setCapIfaceErr]   = useState<string | null>(null)
+  const [capSelected, setCapSelected]   = useState('')
+  const [capFilter, setCapFilter]       = useState('')
+  const [capPromisc, setCapPromisc]     = useState(false)
+  const [capApplying, setCapApplying]   = useState(false)
+  const [capMsg, setCapMsg]             = useState<string | null>(null)
+  const [capMsgOk, setCapMsgOk]         = useState(true)
+  const capFetchedRef = useRef(false)
 
   const { theme, setTheme } = useTheme()
 
@@ -44,6 +61,53 @@ export function SettingsPanel({ onClose }: Props) {
       .then((data: AppConfig) => setCfg(data))
       .catch(() => { /* leave defaults */ })
   }, [])
+
+  // Load capture interfaces once (lazy — only when panel is open)
+  useEffect(() => {
+    if (capFetchedRef.current) return
+    capFetchedRef.current = true
+    fetch('/capture/interfaces')
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => { throw new Error(e.detail ?? `HTTP ${r.status}`) })
+        return r.json()
+      })
+      .then((d: { interfaces: CaptureIface[]; config: { interface?: string; filter?: string } }) => {
+        setCapIfaces(d.interfaces)
+        if (d.config.interface) setCapSelected(d.config.interface)
+        if (d.config.filter)    setCapFilter(d.config.filter)
+      })
+      .catch((err: Error) => setCapIfaceErr(err.message))
+  }, [])
+
+  const handleCapApply = useCallback(async () => {
+    setCapApplying(true)
+    setCapMsg(null)
+    try {
+      const r = await fetch('/capture/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interface: capSelected || null,
+          filter:    capFilter   || null,
+          promisc:   capPromisc,
+          restart:   true,
+        }),
+      })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setCapMsgOk(false)
+        setCapMsg(body.detail ?? 'Apply failed.')
+      } else {
+        setCapMsgOk(true)
+        setCapMsg(body.warning ? `Applied (${body.warning})` : 'Applied — capture engine restarting.')
+      }
+    } catch {
+      setCapMsgOk(false)
+      setCapMsg('Network error.')
+    } finally {
+      setCapApplying(false)
+    }
+  }, [capSelected, capFilter, capPromisc])
 
   const handleSave = useCallback(async () => {
     if (cfg.threshold_high >= cfg.threshold_critical) {
@@ -315,6 +379,152 @@ export function SettingsPanel({ onClose }: Props) {
                   counts · mean score · OIF latency
                 </span>
               </a>
+            </div>
+          </section>
+
+          {/* ── Capture interface ─────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
+              Capture Interface
+            </h3>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Select the interface the capture engine should listen on.
+              Changes are written to <span className="font-mono">capture.json</span> and
+              applied immediately — no container restart needed.
+            </p>
+
+            {capIfaceErr ? (
+              <div className="text-[11px] text-muted-foreground bg-muted/40 px-3 py-2"
+                style={{ borderRadius: 'var(--radius)' }}>
+                <span className="font-medium">Interface list unavailable:</span> {capIfaceErr}
+                <br />Enter an interface name manually below.
+              </div>
+            ) : capIfaces === null ? (
+              <p className="text-[11px] text-muted-foreground">Loading interfaces…</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {capIfaces.map((iface) => (
+                  <label
+                    key={iface.name}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-1.5 border cursor-pointer transition-colors',
+                      capSelected === iface.name
+                        ? 'text-foreground'
+                        : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/40',
+                    )}
+                    style={capSelected === iface.name ? {
+                      borderColor: 'var(--color-accent)',
+                      backgroundColor: 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
+                      borderRadius: 'var(--radius)',
+                    } : { borderRadius: 'var(--radius)' }}
+                  >
+                    <input
+                      type="radio"
+                      name="cap-iface"
+                      value={iface.name}
+                      checked={capSelected === iface.name}
+                      onChange={() => setCapSelected(iface.name)}
+                      className="accent-current"
+                    />
+                    <span className="font-mono text-xs font-medium flex-1">{iface.name}</span>
+                    <span className="flex gap-1">
+                      {iface.up && (
+                        <span className="text-[9px] px-1 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: 'var(--color-count-trained)', color: '#fff', borderRadius: 'calc(var(--radius)/2)' }}>
+                          UP
+                        </span>
+                      )}
+                      {iface.promisc && (
+                        <span className="text-[9px] px-1 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: 'var(--color-badge-warn-bg)', color: 'var(--color-badge-warn-text)', borderRadius: 'calc(var(--radius)/2)', border: '1px solid var(--color-badge-warn-bdr)' }}>
+                          PROMISC
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {/* Manual entry if not in list / no Docker */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-muted-foreground">
+                Interface name {capIfaces !== null && capIfaces.length > 0 ? '(or enter manually)' : ''}
+              </label>
+              <input
+                type="text"
+                value={capSelected}
+                onChange={(e) => setCapSelected(e.target.value)}
+                placeholder="e.g. eth0, ens3, bond0"
+                className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
+                style={{ borderRadius: 'var(--radius)' }}
+              />
+            </div>
+
+            {/* BPF filter */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-muted-foreground">BPF pre-filter (optional)</label>
+              <input
+                type="text"
+                value={capFilter}
+                onChange={(e) => setCapFilter(e.target.value)}
+                placeholder="e.g. ip and not host 10.0.0.1"
+                className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
+                style={{ borderRadius: 'var(--radius)' }}
+              />
+            </div>
+
+            {/* Set promiscuous toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">
+                Set interface promiscuous on apply
+              </span>
+              <button
+                onClick={() => setCapPromisc((v) => !v)}
+                className="flex items-center gap-1.5 text-xs transition-colors"
+              >
+                <span
+                  className="inline-flex items-center h-4 w-7 border transition-colors"
+                  style={{
+                    backgroundColor: capPromisc ? 'color-mix(in srgb, var(--color-accent) 20%, transparent)' : 'hsl(var(--muted))',
+                    borderColor: capPromisc ? 'var(--color-accent)' : 'hsl(var(--border))',
+                    borderRadius: 'var(--radius)',
+                  }}
+                >
+                  <span
+                    className="h-3 w-3 border transition-all"
+                    style={{
+                      transform: capPromisc ? 'translateX(14px)' : 'translateX(1px)',
+                      backgroundColor: capPromisc ? 'var(--color-accent)' : 'hsl(var(--muted-foreground))',
+                      borderColor: 'transparent',
+                      borderRadius: 'calc(var(--radius) / 2)',
+                    }}
+                  />
+                </span>
+                {capPromisc ? 'Yes' : 'No'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCapApply}
+                disabled={capApplying || !capSelected.trim()}
+                className={cn(
+                  'px-4 py-1.5 text-xs font-medium transition-colors text-white',
+                  (capApplying || !capSelected.trim()) && 'opacity-40 cursor-not-allowed',
+                )}
+                style={{ backgroundColor: 'var(--color-accent)', borderRadius: 'var(--radius)' }}
+              >
+                {capApplying ? 'Applying…' : 'Apply'}
+              </button>
+              {capMsg && (
+                <span
+                  className="text-xs"
+                  style={{ color: capMsgOk ? 'var(--color-count-trained)' : 'var(--color-badge-danger-text)' }}
+                >
+                  {capMsg}
+                </span>
+              )}
             </div>
           </section>
 

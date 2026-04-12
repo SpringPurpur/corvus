@@ -453,6 +453,131 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await handle_websocket(ws, _alert_queue, _llm_handler)
 
 
+# ── Capture configuration ──────────────────────────────────────────────────────
+# capture.json is bind-mounted into both the inference and monitor containers.
+# Inference writes it; monitor reads it on each restart of capture_engine.
+
+import json as _json
+
+_CAPTURE_CONFIG = Path("/app/capture.json")
+_MONITOR_CONTAINER = "ids_monitor"
+
+
+def _read_capture_cfg() -> dict:
+    try:
+        return _json.loads(_CAPTURE_CONFIG.read_text()) if _CAPTURE_CONFIG.exists() else {}
+    except Exception:
+        return {}
+
+
+def _write_capture_cfg(data: dict) -> None:
+    _CAPTURE_CONFIG.write_text(_json.dumps(data, indent=2))
+
+
+@app.get("/capture/interfaces")
+async def get_capture_interfaces() -> dict:
+    """List network interfaces visible to the monitor container via Docker exec.
+
+    Returns the current capture.json config alongside so the dashboard can
+    pre-select the currently active interface.
+    Requires /var/run/docker.sock to be mounted.
+    """
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        raise HTTPException(500, "docker SDK not installed")
+
+    def _list() -> list:
+        client = docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")
+        try:
+            container = client.containers.get(_MONITOR_CONTAINER)
+            result = container.exec_run(["ip", "-o", "link", "show"], stdout=True, stderr=False)
+            interfaces = []
+            for line in result.output.decode().strip().splitlines():
+                # Format: "2: eth0: <FLAGS> ..."  or  "3: eth0@if4: ..."
+                parts = line.split(":", 2)
+                if len(parts) < 3:
+                    continue
+                name = parts[1].strip().split("@")[0]
+                flags = parts[2]
+                if name == "lo":
+                    continue
+                interfaces.append({
+                    "name": name,
+                    "up": "UP" in flags,
+                    "promisc": "PROMISC" in flags,
+                })
+            return interfaces
+        finally:
+            client.close()
+
+    try:
+        ifaces = await run_in_threadpool(_list)
+        return {"interfaces": ifaces, "config": _read_capture_cfg()}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+class CaptureConfigBody(BaseModel):
+    interface: Optional[str] = None
+    filter:    Optional[str] = None
+    promisc:   bool = False   # set the interface promiscuous before (re)starting
+    restart:   bool = True    # kill capture_engine so the restart loop picks up changes
+
+
+@app.post("/capture/config")
+async def post_capture_config(body: CaptureConfigBody) -> dict:
+    """Write capture.json and optionally set promisc + restart the capture engine.
+
+    The monitor container's start.sh restart loop reads capture.json on every
+    iteration, so killing capture_engine is enough to apply the new config.
+    """
+    cfg: dict = {}
+    if body.interface:
+        cfg["interface"] = body.interface
+    if body.filter:
+        cfg["filter"] = body.filter
+    _write_capture_cfg(cfg)
+
+    if not body.restart and not body.promisc:
+        return {"ok": True, "config": cfg}
+
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        # Config written; caller must restart the container manually.
+        return {"ok": True, "config": cfg, "warning": "docker SDK not installed — restart monitor manually"}
+
+    def _apply() -> None:
+        client = docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")
+        try:
+            container = client.containers.get(_MONITOR_CONTAINER)
+            if body.interface and body.promisc:
+                container.exec_run(
+                    ["ip", "link", "set", body.interface, "promisc", "on"],
+                    detach=False,
+                )
+                log.info("[capture] set %s promisc on", body.interface)
+            if body.restart:
+                container.exec_run(["pkill", "-f", "capture_engine"], detach=True)
+                log.info("[capture] capture_engine restarted via pkill")
+        finally:
+            client.close()
+
+    try:
+        await run_in_threadpool(_apply)
+        return {"ok": True, "config": cfg}
+    except Exception as exc:
+        log.error("[capture] config apply failed: %s", exc)
+        raise HTTPException(500, str(exc))
+
+
+@app.get("/capture/config")
+async def get_capture_config() -> dict:
+    """Return the current capture.json contents."""
+    return _read_capture_cfg()
+
+
 # Serve built React bundle — mounted last so API routes take priority.
 # Only mounted if the static directory exists; during development the Vite
 # dev server serves the frontend instead.

@@ -7,6 +7,7 @@
 #   docker-compose -f docker-compose.yml -f docker-compose.testbed.yml up -d
 #
 # Interface selection (evaluated in order by capture/start.sh):
+#   0. capture.json             — set from the dashboard Settings → Capture panel
 #   1. CAPTURE_INTERFACE=eth0   — explicit, set in .env
 #   2. Any UP+PROMISC interface  — analyst ran: ip link set <iface> promisc on
 #   3. Docker bridge for 172.20.0.0/24 — testbed auto-detect fallback
@@ -37,6 +38,7 @@ services:
     volumes:
       - ./capture:/app/capture
       - ipc_socket:/tmp/ids_ipc
+      - ./capture.json:/app/capture.json
     depends_on:
       inference:
         condition: service_healthy
@@ -48,6 +50,7 @@ services:
     container_name: ids_inference
     volumes:
       - ipc_socket:/tmp/ids_ipc
+      - ./capture.json:/app/capture.json
       - ./dashboard/dist:/app/static:ro
       - ./inference/models:/app/models
       - ./inference/config.json:/app/config.json
