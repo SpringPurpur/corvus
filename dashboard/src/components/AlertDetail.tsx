@@ -1,6 +1,41 @@
 import type { Alert, AttributionEntry, PipelineTiming } from '../types'
 import { FeatureRadar } from './FeatureRadar'
 
+// Horizontal track showing where the flow's feature value sits relative to
+// the baseline median ± IQR. The track is always scaled to include both
+// the IQR zone and the actual value. Red dot = outside IQR, blue = inside.
+function BaselinePositionBar({ value, median, iqr }: {
+  value: number; median: number; iqr: number
+}) {
+  const halfSpan = Math.max(iqr * 2.5, Math.abs(value - median) * 1.25, 1e-9)
+  const lo = median - halfSpan
+  const hi = median + halfSpan
+  const toX = (v: number) => Math.max(1, Math.min(99, ((v - lo) / (hi - lo)) * 100))
+
+  const medX  = toX(median)
+  const valX  = toX(value)
+  const iqrLo = toX(median - iqr / 2)
+  const iqrHi = toX(median + iqr / 2)
+  const outside = Math.abs(value - median) > iqr / 2
+
+  return (
+    <svg viewBox="0 0 100 10" className="w-full" style={{ height: 8 }} aria-hidden>
+      {/* Track */}
+      <rect x={0} y={3.5} width={100} height={3} rx={1.5}
+        fill="var(--color-muted, rgba(128,128,128,0.15))" />
+      {/* IQR band */}
+      <rect x={iqrLo} y={2} width={Math.max(iqrHi - iqrLo, 1)} height={6} rx={1}
+        fill="var(--color-bar-secondary)" opacity={0.35} />
+      {/* Median tick */}
+      <line x1={medX} y1={1} x2={medX} y2={9}
+        stroke="var(--color-muted-foreground, #888)" strokeWidth={0.8} opacity={0.6} />
+      {/* Value dot */}
+      <circle cx={valX} cy={5} r={2.5}
+        fill={outside ? 'var(--color-score-crit)' : 'var(--color-bar-primary)'} />
+    </svg>
+  )
+}
+
 interface Props {
   alert:          Alert
   clockOffsetMs?: number   // server_ms − host_ms; corrects container/host clock skew
@@ -34,6 +69,15 @@ function AttributionBar({ entry }: { entry: AttributionEntry }) {
           </span>
         )}
       </div>
+      {hasBaseline && (
+        <div className="pl-[152px] pr-[48px] mt-0.5">
+          <BaselinePositionBar
+            value={entry.value}
+            median={entry.baseline.median}
+            iqr={entry.baseline.iqr}
+          />
+        </div>
+      )}
     </div>
   )
 }
