@@ -54,6 +54,14 @@ export function SettingsPanel({ onClose }: Props) {
   const [capStatus, setCapStatus]       = useState<{ interface?: string; filter?: string } | null>(null)
   const capFetchedRef = useRef(false)
 
+  // System / container control
+  type ContainerInfo = { name: string; status: string }
+  type SysStatus = { docker: boolean; containers: Record<string, ContainerInfo>; error?: string }
+  const [sysStatus, setSysStatus]       = useState<SysStatus | null>(null)
+  const [sysAction, setSysAction]       = useState<string | null>(null)  // "monitor/restart" etc.
+  const [sysMsg, setSysMsg]             = useState<string | null>(null)
+  const [sysMsgOk, setSysMsgOk]         = useState(true)
+
   const { theme, setTheme } = useTheme()
 
   // Load current config from inference engine on open
@@ -83,6 +91,44 @@ export function SettingsPanel({ onClose }: Props) {
         setCapFilter(filter)
       })
       .catch((err: Error) => setCapIfaceErr(err.message))
+  }, [])
+
+  // Poll system status every 5 s while the panel is open
+  useEffect(() => {
+    const fetchSys = () =>
+      fetch('/system/status')
+        .then((r) => r.json())
+        .then((d: SysStatus) => setSysStatus(d))
+        .catch(() => {})
+    fetchSys()
+    const id = setInterval(fetchSys, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  const handleSysAction = useCallback(async (container: string, action: 'restart' | 'stop') => {
+    const key = `${container}/${action}`
+    setSysAction(key)
+    setSysMsg(null)
+    try {
+      const r = await fetch(`/system/${container}/${action}`, { method: 'POST' })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setSysMsgOk(false)
+        setSysMsg(body.detail ?? `${action} failed`)
+      } else {
+        setSysMsgOk(true)
+        setSysMsg(
+          action === 'restart'
+            ? `${body.container} restarting…`
+            : `${body.container} stopped.`,
+        )
+      }
+    } catch {
+      setSysMsgOk(false)
+      setSysMsg('Network error.')
+    } finally {
+      setSysAction(null)
+    }
   }, [])
 
   const handleCapApply = useCallback(async () => {
@@ -386,6 +432,101 @@ export function SettingsPanel({ onClose }: Props) {
                 </span>
               </a>
             </div>
+          </section>
+
+          {/* ── System ────────────────────────────────────────────────── */}
+          <section className="flex flex-col gap-3 pt-1 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
+              System
+            </h3>
+
+            {sysStatus === null ? (
+              <p className="text-[11px] text-muted-foreground">Loading…</p>
+            ) : !sysStatus.docker ? (
+              <p className="text-[11px] text-muted-foreground">
+                Docker socket unavailable — container control disabled.
+                {sysStatus.error && <span className="block font-mono mt-0.5 opacity-70">{sysStatus.error}</span>}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(['monitor', 'inference'] as const).map((key) => {
+                  const info = sysStatus.containers[key]
+                  const status = info?.status ?? 'unknown'
+                  const running    = status === 'running'
+                  const restarting = status === 'restarting'
+                  const dotColor   = running    ? 'var(--color-online)'
+                                   : restarting ? 'var(--color-baselining)'
+                                   : status === 'unknown' ? 'hsl(var(--muted-foreground))'
+                                   : 'var(--color-offline)'
+                  const label = key === 'monitor' ? 'Capture monitor' : 'Inference engine'
+                  const busyR = sysAction === `${key}/restart`
+                  const busyS = sysAction === `${key}/stop`
+
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center gap-3 px-3 py-2 bg-muted/30"
+                      style={{ borderRadius: 'var(--radius)' }}
+                    >
+                      {/* Status dot */}
+                      <span
+                        className={cn('h-2 w-2 rounded-full shrink-0', restarting && 'animate-pulse')}
+                        style={{ backgroundColor: dotColor }}
+                      />
+                      {/* Label + status */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium">{label}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono">{info?.name ?? key} · {status}</div>
+                      </div>
+                      {/* Actions */}
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleSysAction(key, 'restart')}
+                          disabled={!!sysAction}
+                          title="Restart container"
+                          className={cn(
+                            'px-2 py-1 text-[10px] font-medium transition-colors bg-muted hover:bg-muted/60',
+                            !!sysAction && 'opacity-40 cursor-not-allowed',
+                          )}
+                          style={{ borderRadius: 'var(--radius)' }}
+                        >
+                          {busyR ? '…' : 'Restart'}
+                        </button>
+                        {key === 'monitor' && (
+                          <button
+                            onClick={() => handleSysAction(key, 'stop')}
+                            disabled={!!sysAction || !running}
+                            title="Stop container"
+                            className={cn(
+                              'px-2 py-1 text-[10px] font-medium transition-colors',
+                              (!!sysAction || !running) ? 'opacity-40 cursor-not-allowed bg-muted'
+                                : 'bg-muted hover:bg-muted/60',
+                            )}
+                            style={{ borderRadius: 'var(--radius)' }}
+                          >
+                            {busyS ? '…' : 'Stop'}
+                          </button>
+                        )}
+                        {key === 'inference' && (
+                          <span className="text-[9px] text-muted-foreground self-center opacity-60">
+                            restart reconnects
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {sysMsg && (
+                  <p
+                    className="text-[11px]"
+                    style={{ color: sysMsgOk ? 'var(--color-count-trained)' : 'var(--color-badge-danger-text)' }}
+                  >
+                    {sysMsg}
+                  </p>
+                )}
+              </div>
+            )}
           </section>
 
           {/* ── Capture interface ─────────────────────────────────────── */}

@@ -448,6 +448,105 @@ async def export_summary_csv() -> Response:
     )
 
 
+# ── System / container control ────────────────────────────────────────────────
+# Requires /var/run/docker.sock to be mounted in the inference container.
+
+_MANAGED = {
+    "monitor":   "ids_monitor",
+    "inference": "ids_inference",
+}
+
+
+def _docker_client():
+    import docker as docker_sdk
+    return docker_sdk.DockerClient(base_url="unix://var/run/docker.sock")
+
+
+@app.get("/system/status")
+async def get_system_status() -> dict:
+    """Return running state of managed containers.
+
+    status values match Docker's container.status string:
+      running | restarting | exited | paused | dead | created | not_found
+    Returns docker=False when the Docker socket is unavailable.
+    """
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        return {"docker": False, "containers": {}}
+
+    def _query() -> dict:
+        client = _docker_client()
+        try:
+            out = {}
+            for key, name in _MANAGED.items():
+                try:
+                    c = client.containers.get(name)
+                    out[key] = {"name": name, "status": c.status}
+                except docker_sdk.errors.NotFound:
+                    out[key] = {"name": name, "status": "not_found"}
+            return {"docker": True, "containers": out}
+        finally:
+            client.close()
+
+    try:
+        return await run_in_threadpool(_query)
+    except Exception as exc:
+        return {"docker": False, "containers": {}, "error": str(exc)}
+
+
+@app.post("/system/{container}/restart")
+async def restart_container(container: str) -> dict:
+    if container not in _MANAGED:
+        raise HTTPException(400, f"unknown container '{container}' — choose: {list(_MANAGED)}")
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        raise HTTPException(500, "docker SDK not installed")
+
+    name = _MANAGED[container]
+
+    def _restart() -> None:
+        client = _docker_client()
+        try:
+            client.containers.get(name).restart(timeout=10)
+            log.info("[system] restarted %s", name)
+        finally:
+            client.close()
+
+    try:
+        await run_in_threadpool(_restart)
+        return {"ok": True, "container": name}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/system/{container}/stop")
+async def stop_container(container: str) -> dict:
+    if container not in _MANAGED:
+        raise HTTPException(400, f"unknown container '{container}' — choose: {list(_MANAGED)}")
+    try:
+        import docker as docker_sdk
+    except ImportError:
+        raise HTTPException(500, "docker SDK not installed")
+
+    name = _MANAGED[container]
+
+    def _stop() -> None:
+        client = _docker_client()
+        try:
+            client.containers.get(name).stop(timeout=10)
+            log.info("[system] stopped %s", name)
+        finally:
+            client.close()
+
+    try:
+        await run_in_threadpool(_stop)
+        return {"ok": True, "container": name}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await handle_websocket(ws, _alert_queue, _llm_handler)
