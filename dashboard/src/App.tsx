@@ -7,6 +7,7 @@ import { AlertFeed } from './components/AlertFeed'
 import { AlertDetail } from './components/AlertDetail'
 import { LLMPanel } from './components/LLMPanel'
 import { ModelHealth } from './components/ModelHealth'
+import { NetworkTopology } from './components/NetworkTopology'
 import { StatsBar } from './components/StatsBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { EntityList } from './components/EntityList'
@@ -23,7 +24,7 @@ const DEFAULT_CONFIG: AppConfig = {
 }
 
 function AppInner() {
-  const [tab, setTab]               = useState<'TCP' | 'UDP' | 'Health'>('TCP')
+  const [tab, setTab]               = useState<'TCP' | 'UDP' | 'Health' | 'Topology'>('TCP')
   const [selected, setSelected]     = useState<Alert | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig]         = useState<AppConfig>(DEFAULT_CONFIG)
@@ -101,7 +102,7 @@ function AppInner() {
   }, [alerts, entityFilter, showAll])
 
   // Clear entity filter when switching tabs
-  const handleTabChange = (t: 'TCP' | 'UDP' | 'Health') => {
+  const handleTabChange = (t: 'TCP' | 'UDP' | 'Health' | 'Topology') => {
     setTab(t)
     setSelected(null)
     setEntityFilter(null)
@@ -128,7 +129,7 @@ function AppInner() {
 
       {/* Tab bar */}
       <div className="flex border-b px-4 bg-card">
-        {(['TCP', 'UDP', 'Health'] as const).map((t) => (
+        {(['TCP', 'UDP', 'Health', 'Topology'] as const).map((t) => (
           <button
             key={t}
             onClick={() => handleTabChange(t)}
@@ -150,6 +151,10 @@ function AppInner() {
         {tab === 'Health' ? (
           <div className="flex-1 overflow-hidden">
             <ModelHealth tcp={tcpHealth} udp={udpHealth} config={config} tcpAlerts={tcp} udpAlerts={udp} />
+          </div>
+        ) : tab === 'Topology' ? (
+          <div className="flex-1 overflow-hidden">
+            <NetworkTopology alerts={allAlerts} />
           </div>
         ) : (
           <>
