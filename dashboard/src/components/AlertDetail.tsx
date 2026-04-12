@@ -2,7 +2,8 @@ import type { Alert, AttributionEntry, PipelineTiming } from '../types'
 import { FeatureRadar } from './FeatureRadar'
 
 interface Props {
-  alert: Alert
+  alert:          Alert
+  clockOffsetMs?: number   // server_ms − host_ms; corrects container/host clock skew
 }
 
 function AttributionBar({ entry }: { entry: AttributionEntry }) {
@@ -37,7 +38,7 @@ function AttributionBar({ entry }: { entry: AttributionEntry }) {
   )
 }
 
-export function AlertDetail({ alert }: Props) {
+export function AlertDetail({ alert, clockOffsetMs = 0 }: Props) {
   const { verdict, scores, attribution, src_ip, src_port, dst_ip, dst_port, proto, duration, fwd_pkts } = alert
 
   return (
@@ -128,14 +129,14 @@ export function AlertDetail({ alert }: Props) {
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Pipeline latency
           </h3>
-          <LatencyBreakdown timing={alert.timing} />
+          <LatencyBreakdown timing={alert.timing} clockOffsetMs={clockOffsetMs} />
         </section>
       )}
     </div>
   )
 }
 
-function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: number } }) {
+function LatencyBreakdown({ timing, clockOffsetMs = 0 }: { timing: PipelineTiming & { t_infer_ns?: number }; clockOffsetMs?: number }) {
   const { t_enqueue_ns, t_socket_ns, t_dequeue_ns, t_scored_ns, t_ws_ns, t_browser_ms, t_infer_ns } = timing
 
   const ns2ms = (ns: number) => ns / 1_000_000
@@ -163,12 +164,15 @@ function LatencyBreakdown({ timing }: { timing: PipelineTiming & { t_infer_ns?: 
   }
   const lastNs = t_scored_ns ?? t_infer_ns ?? t_socket_ns
   if (t_ws_ns && t_browser_ms) {
-    stages.push(['WS → browser', t_browser_ms - ns2ms(t_ws_ns)])
+    // Subtract clockOffsetMs to convert the container timestamp to host time
+    // before differencing with Date.now(). Without this, WSL2/Hyper-V clock
+    // skew (container ahead of host) produces negative "WS → browser" values.
+    stages.push(['WS → browser', t_browser_ms - (ns2ms(t_ws_ns) - clockOffsetMs)])
   }
   if (stages.length === 0) return null
   const pipelineStart = ipc_start ?? t_socket_ns
   const total = t_browser_ms
-    ? t_browser_ms - ns2ms(pipelineStart)
+    ? t_browser_ms - (ns2ms(pipelineStart) - clockOffsetMs)
     : ns2ms(lastNs) - ns2ms(pipelineStart)
   const maxStage = Math.max(...stages.map(([, v]) => v), 0.001)  // prevent /0
 

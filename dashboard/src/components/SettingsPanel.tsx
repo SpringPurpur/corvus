@@ -123,7 +123,7 @@ export function SettingsPanel({ onClose }: Props) {
     >
       {/* Panel — stop propagation so clicking inside doesn't close */}
       <div
-        className="w-[440px] border bg-card shadow-xl flex flex-col gap-0 overflow-hidden"
+        className="w-[440px] max-w-[calc(100vw-2rem)] max-h-[90vh] border bg-card shadow-xl flex flex-col overflow-hidden"
         style={{ borderRadius: 'var(--radius)' }}
         onClick={(e) => e.stopPropagation()}
       >

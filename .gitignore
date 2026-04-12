@@ -33,7 +33,8 @@ dashboard/node_modules/
 data/
 
 # Scenario results — generated at runtime, not stored in git
-scenarios/results/*.json
+scenarios/old/
+scenarios/results/
 
 # IDE
 .vscode/settings.json
