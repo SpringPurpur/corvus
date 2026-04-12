@@ -52,6 +52,7 @@ export interface Alert {
   verdict:     Verdict
   scores:      OifScores
   attribution: AttributionEntry[]
+  features?:   Record<string, number>  // all OIF feature values — for full-context LLM explain
   timing?:     PipelineTiming
 }
 

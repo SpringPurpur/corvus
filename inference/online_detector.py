@@ -871,6 +871,10 @@ def process_flow(flow: dict) -> dict | None:
     else:
         severity = "INFO"
 
+    # All feature values keyed by name — included in alert dict so the LLM
+    # can receive the full feature vector as optional context.
+    feature_values = {name: float(fn(flow)) for name, fn in features}
+
     return {
         "baselining": False,
         "protocol":   proto_str,
@@ -883,4 +887,5 @@ def process_flow(flow: dict) -> dict | None:
         },
         "verdict":     severity,
         "attribution": attribution,
+        "features":    feature_values,
     }

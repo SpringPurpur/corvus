@@ -216,6 +216,7 @@ class Classifier:
             },
             "scores":      result["scores"],       # fast/medium/slow/composite
             "attribution": result["attribution"],  # top-3 OIF path-depth attribution
+            "features":    result.get("features", {}),  # all feature values (opt-in LLM context)
             # Pipeline latency timestamps (nanoseconds, CLOCK_REALTIME)
             # t_enqueue_ns : when C ipc_writer_enqueue() copied flow to ring buffer
             # t_socket_ns  : when Python ctypes-decoded the flow from the socket

@@ -16,6 +16,7 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
   const [feedback, setFeedback]               = useState<Feedback | null>(null)
   const [feedbackPending, setFeedbackPending] = useState(false)
   const [explaining, setExplaining]           = useState(false)
+  const [fullContext, setFullContext]          = useState(false)
   const explainId  = `explain-${alert.flow_id}`
   const chatIdRef  = useRef(0)
 
@@ -33,8 +34,12 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
 
   const handleExplain = useCallback(() => {
     setExplaining(true)
-    send({ type: 'llm_request', request_id: explainId, fn: 'explain', payload: { alert } })
-  }, [alert, explainId, send])
+    // When fullContext is off, strip features from the payload to keep token usage low.
+    const alertPayload = fullContext
+      ? alert
+      : { ...alert, features: undefined }
+    send({ type: 'llm_request', request_id: explainId, fn: 'explain', payload: { alert: alertPayload } })
+  }, [alert, explainId, fullContext, send])
 
   const handleDismiss = useCallback(() => {
     setFeedbackPending(true)
@@ -88,9 +93,20 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
 
       {/* Explanation */}
       <section>
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          AI Explanation
-        </h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            AI Explanation
+          </h3>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={fullContext}
+              onChange={(e) => setFullContext(e.target.checked)}
+              className="h-3 w-3 accent-current"
+            />
+            <span className="text-[11px] text-muted-foreground">Full features</span>
+          </label>
+        </div>
         {explanation ? (
           <p className="text-xs leading-relaxed">{explanation}</p>
         ) : explaining ? (
