@@ -1,4 +1,4 @@
-; features_avx2.asm — AVX2 routines for packet length statistics and TCP flag counts.
+; features_avx2.asm - AVX2 routines for packet length statistics and TCP flag counts.
 ;
 ; Assembled with NASM for ELF64 (Linux x86-64).
 ; Follows the System V AMD64 ABI throughout:
@@ -9,7 +9,7 @@
 
 section .text
 
-; ─────────────────────────────────────────────────────────────────────────────
+; -------------------------------------------------------------------------------
 ; compute_pkt_len_stats_avx2
 ;
 ; Two-pass mean and population std over a uint16 array.
@@ -27,8 +27,8 @@ section .text
 ; Processes 16 uint16 per AVX2 iteration (256-bit register = 16 × 16-bit lanes).
 ; Scalar tail handles count % 16 remainder.
 ;
-; Caller must ensure count > 0 — a zero-length buffer is a logic error upstream.
-; ─────────────────────────────────────────────────────────────────────────────
+; Caller must ensure count > 0. A zero-length buffer is a logic error upstream.
+; -------------------------------------------------------------------------------
 global compute_pkt_len_stats_avx2
 compute_pkt_len_stats_avx2:
     ; rdi = buf, esi = count, rdx = out_mean, rcx = out_std
@@ -42,7 +42,7 @@ compute_pkt_len_stats_avx2:
     mov     r14, rdx        ; out_mean (save before we use rdx for scratch)
     ; rcx = out_std (saved implicitly, not clobbered until we write result)
 
-    ; ── Pass 1: sum all elements ──────────────────────────────────────────
+    ; pass 1: sum all elements
     vpxor   ymm0, ymm0, ymm0    ; accumulator (four 64-bit lanes)
     vpxor   ymm7, ymm7, ymm7    ; zero register
 
@@ -114,7 +114,7 @@ compute_pkt_len_stats_avx2:
     divss     xmm0, xmm1        ; xmm0 = mean
     movss     [r14], xmm0       ; *out_mean = mean
 
-    ; ── Pass 2: sum of squared deviations ────────────────────────────────
+    ; pass 2: sum of squared deviations
     ; sum_sq = Σ (x_i - mean)^2 using float arithmetic
     vbroadcastss ymm8, xmm0     ; broadcast mean to all 8 float lanes
 
@@ -181,14 +181,14 @@ compute_pkt_len_stats_avx2:
     vzeroupper
     ret
 
-; ─────────────────────────────────────────────────────────────────────────────
+; -------------------------------------------------------------------------------
 ; count_tcp_flags_avx2
 ;
 ; Count occurrences of each TCP flag bit across an array of flags bytes.
 ;
 ;   void count_tcp_flags_avx2(
-;       uint8_t  *flags,   ; rdi  — array of TCP flags bytes
-;       uint32_t  count,   ; esi  — number of bytes
+;       uint8_t  *flags,   ; rdi  - array of TCP flags bytes
+;       uint32_t  count,   ; esi  - number of bytes
 ;       uint32_t *fin,     ; rdx
 ;       uint32_t *syn,     ; rcx
 ;       uint32_t *rst,     ; r8
@@ -201,7 +201,7 @@ compute_pkt_len_stats_avx2:
 ; AND each 32-byte chunk with the mask, then use vpsadbw to horizontally sum
 ; the resulting 0/1 bytes into 64-bit accumulators.
 ; Processes 32 bytes per iteration. Scalar tail for count % 32.
-; ─────────────────────────────────────────────────────────────────────────────
+; -------------------------------------------------------------------------------
 global count_tcp_flags_avx2
 count_tcp_flags_avx2:
     push    rbx
@@ -271,9 +271,9 @@ count_tcp_flags_avx2:
     ; vpsadbw sums absolute differences vs zero = sum of 0/1 bytes,
     ; producing four 64-bit lane partial sums.
 
-    ; FIN (bit 0 — already 0 or 1 after AND+normalise)
+    ; FIN (bit 0 - already 0 or 1 after AND+normalise)
     vpand   ymm13, ymm12, ymm6
-    ; bit 0 is already 0x00 or 0x01 — no shift needed
+    ; bit 0 is already 0x00 or 0x01 - no shift needed
     vpsadbw ymm13, ymm13, ymm15
     vpaddq  ymm0, ymm0, ymm13
 
@@ -321,7 +321,7 @@ count_tcp_flags_avx2:
     xor     r10d, r10d  ; rst
     xor     r11d, r11d  ; psh
     xor     esi, esi    ; ack
-    xor     r13d, r13d  ; urg  (reuse r13 — count already used)
+    xor     r13d, r13d  ; urg  (reuse r13 - count already used)
 
 .flag_scalar:
     test    ecx, ecx
@@ -347,7 +347,7 @@ count_tcp_flags_avx2:
 .flag_done:
     ; Horizontal-reduce each ymm accumulator and add scalar tail
 
-    ; Helper macro inline — reduce ymm to single uint32 and add scalar part
+    ; reduce each ymm accumulator to uint32 and add scalar tail
     ; FIN
     vextracti128 xmm13, ymm0, 1
     paddq        xmm0, xmm13
@@ -411,7 +411,7 @@ count_tcp_flags_avx2:
     vzeroupper
     ret
 
-; Mark stack as non-executable — required by the GNU toolchain for ELF objects
-; that don't otherwise declare .note.GNU-stack. Without this the linker assumes
-; the stack needs to be executable, which triggers a deprecation warning.
+; Mark stack as non-executable - required by the GNU toolchain for ELF objects
+; that omit .note.GNU-stack. Without this, the linker assumes an executable
+; stack and emits a deprecation warning.
 section .note.GNU-stack noalloc noexec nowrite progbits

@@ -1,10 +1,10 @@
-# socket_reader.py — Unix socket server that receives flow_record_t structs
+# socket_reader.py - Unix socket server that receives flow_record_t structs
 # from the C capture engine and puts parsed dicts onto a queue.
 #
 # The C engine is the client; we own the socket file. Wire format:
 #   [uint32_t payload_len = sizeof(flow_record_t)][flow_record_t bytes]
 #
-# The ctypes struct must match the C layout exactly — sizeof must equal 6352.
+# The ctypes struct must match the C layout exactly; sizeof must equal 6352.
 # If it doesn't, startup fails loudly rather than silently producing wrong features.
 
 import ctypes
@@ -23,7 +23,7 @@ SOCKET_PATH = "/tmp/ids_ipc/flows.sock"
 EXPECTED_SIZEOF = 6352
 
 
-# ── ctypes mirror of flow_key_t ──────────────────────────────────────────────
+# ctypes mirror of flow_key_t
 
 class FlowKey(ctypes.Structure):
     _fields_ = [
@@ -36,7 +36,7 @@ class FlowKey(ctypes.Structure):
     ]
 
 
-# ── ctypes mirror of flow_record_t ───────────────────────────────────────────
+# ctypes mirror of flow_record_t
 # Field order and types must match flow_types.h exactly.
 # Padding fields (_padN) are inserted wherever GCC inserts implicit padding
 # to satisfy alignment requirements.
@@ -83,18 +83,18 @@ class FlowRecord(ctypes.Structure):
         ("urg_flag_cnt",       ctypes.c_uint32),
         ("bwd_pkt_len_mean",   ctypes.c_float),
 
-        # derived features — computed at finalisation, used by IsolationForest models
+        # derived features - computed at finalisation, used by IsolationForest models
         ("fwd_pkts_per_sec",   ctypes.c_float),
         ("syn_flag_ratio",     ctypes.c_float),
         ("psh_flag_ratio",     ctypes.c_float),
 
-        # accumulation buffers (internal — not used for inference)
+        # accumulation buffers (internal - not used for inference)
         ("pkt_len_buf",            ctypes.c_uint16 * 512),
         ("pkt_len_buf_count",      ctypes.c_uint32),
         ("bwd_pkt_len_buf",        ctypes.c_uint16 * 512),
         ("bwd_pkt_len_buf_count",  ctypes.c_uint32),
         # bwd_pkt_len_buf_count ends at offset 2208 (8-byte aligned) after the 3
-        # float fields were added — no padding needed before fwd_iat_buf.
+        # float fields were added; no padding needed before fwd_iat_buf.
         ("fwd_iat_buf",            ctypes.c_uint64 * 256),
         ("fwd_iat_buf_count",      ctypes.c_uint32),
         # fwd_iat_buf_count ends at offset 4252; uint64 needs 8-byte align → pad 4
@@ -106,7 +106,7 @@ class FlowRecord(ctypes.Structure):
         ("last_pkt_ns_for_iat",    ctypes.c_uint64),
         ("last_fwd_pkt_ns",        ctypes.c_uint64),
 
-        # pipeline timing — set by ipc_writer_enqueue() on the ring slot copy,
+        # pipeline timing - set by ipc_writer_enqueue() on the ring slot copy,
         # NOT at flow creation. t_socket_ns - t_enqueue_ns = true IPC transfer time.
         ("t_enqueue_ns",       ctypes.c_uint64),
 
@@ -167,10 +167,10 @@ def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
         "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,
         "syn_flag_ratio":    r.syn_flag_ratio,
         "psh_flag_ratio":    r.psh_flag_ratio,
-        # capture timestamps — nanoseconds since Unix epoch (C CLOCK_REALTIME)
+        # capture timestamps - nanoseconds since Unix epoch (C CLOCK_REALTIME)
         "first_pkt_ns":      r.first_pkt_ns,
         "last_pkt_ns":       r.last_pkt_ns,
-        # IPC ring enqueue time — set by ipc_writer_enqueue() after copying the
+        # IPC ring enqueue time - set by ipc_writer_enqueue() after copying the
         # flow into the ring buffer. t_socket_ns - t_enqueue_ns = true IPC latency.
         "t_enqueue_ns":      r.t_enqueue_ns,
     }
@@ -203,7 +203,7 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
 
         if payload_len != record_size:
             log.error(
-                "Unexpected payload_len=%d expected=%d — discarding",
+                "Unexpected payload_len=%d expected=%d - discarding",
                 payload_len, record_size,
             )
             # Drain the bytes to stay in sync
@@ -221,7 +221,7 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
 
         ctypes.memmove(ctypes.addressof(record), data, record_size)
         d = _record_to_dict(record)
-        # Stamp arrival time immediately after decode — measures IPC transport + ctypes cost
+        # stamp arrival time right after decode; measures IPC transport + ctypes cost
         d["t_socket_ns"] = time.time_ns()
         log.info("Flow received: proto=%d src=%s:%d dst=%s:%d pkts=%d",
                  d["protocol"], d["src_ip"], d["src_port"],
@@ -254,7 +254,7 @@ def run_socket_server(out_queue: queue.Queue) -> None:
     while True:
         conn, _ = server.accept()
         log.info("Capture engine connected")
-        # Each client gets its own thread — in practice only one capture engine
+        # each client gets its own thread; in practice only one capture engine
         # connects at a time, but this keeps the accept loop non-blocking
         t = threading.Thread(target=_handle_client_safe, args=(conn, out_queue), daemon=True)
         t.start()

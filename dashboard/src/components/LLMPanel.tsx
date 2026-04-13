@@ -1,4 +1,4 @@
-// LLMPanel.tsx — LLM explanation, feedback form, and analyst chat for an alert.
+// LLMPanel.tsx - LLM explanation, feedback form, and analyst chat for an alert.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Alert, Feedback, FeedbackMsg, LlmRequestMsg } from '../types'
@@ -21,7 +21,7 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
   const chatIdRef  = useRef(0)
 
   // Reset UI state and load any stored feedback when the selected alert changes.
-  // Explanation is NOT auto-requested — the analyst triggers it explicitly.
+  // Explanation is not auto-requested; the analyst triggers it explicitly.
   useEffect(() => {
     setFeedback(null)
     setFeedbackPending(false)
@@ -82,7 +82,7 @@ export function LLMPanel({ alert, allAlerts, send, llmResponses }: Props) {
         dismiss:         parsed.dismiss ?? false,
         reason:          parsed.reason ?? '',
       })
-    } catch { /* non-JSON response — ignore */ }
+    } catch { /* non-JSON response - ignore */ }
   }, [parsedFeedbackRaw, alert.flow_id])
 
   const explanation = llmResponses[explainId]

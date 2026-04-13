@@ -1,6 +1,6 @@
-# llm.py — Anthropic SDK wrappers for alert explanation, feedback parsing, and chat.
+# llm.py - Anthropic SDK wrappers for alert explanation, feedback parsing, and chat.
 #
-# API key is read from the ANTHROPIC_API_KEY environment variable — never hardcoded.
+# API key is read from the ANTHROPIC_API_KEY environment variable - never hardcoded.
 # All three functions are async; they are called from the WebSocket handler.
 #
 # Optimisations applied:
@@ -46,7 +46,7 @@ async def _retry(coro_fn, retries: int = 2):
             if attempt == retries:
                 raise
             wait = 1.5 ** attempt
-            log.warning("LLM transient error (%s) — retry %d/%d in %.1fs",
+            log.warning("LLM transient error (%s) - retry %d/%d in %.1fs",
                         exc.__class__.__name__, attempt + 1, retries, wait)
             await asyncio.sleep(wait)
 

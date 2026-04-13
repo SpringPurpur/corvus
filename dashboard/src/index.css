@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Layout color tokens — overridden at runtime by ThemeContext */
+    /* Layout color tokens - overridden at runtime by ThemeContext */
     --background:       222 47% 8%;
     --foreground:       210 40% 92%;
     --card:             222 47% 11%;
@@ -14,7 +14,7 @@
     --border:           217 33% 20%;
     --radius:           0.5rem;
 
-    /* Semantic color tokens — overridden at runtime by ThemeContext */
+    /* Semantic color tokens - overridden at runtime by ThemeContext */
     --color-online:            #34d399;
     --color-offline:           #52525b;
     --color-baselining:        #fbbf24;
@@ -62,7 +62,7 @@ body {
 ::-webkit-scrollbar-track { background: hsl(var(--background)); }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
 
-/* ── CRT scanline overlay for retro themes ───────────────────────────── */
+/* CRT scanline overlay for retro themes */
 html[data-theme="cnc"]::after,
 html[data-theme="terminal"]::after {
   content: '';
@@ -79,14 +79,14 @@ html[data-theme="terminal"]::after {
   z-index: 9999;
 }
 
-/* ── C&C title glow ──────────────────────────────────────────────────── */
+/* C&C title glow */
 html[data-theme="cnc"] .brand-title,
 html[data-theme="terminal"] .brand-title {
   text-shadow: 0 0 8px currentColor;
   letter-spacing: 0.15em;
 }
 
-/* ── Tab active indicator follows accent ─────────────────────────────── */
+/* Tab active indicator follows accent */
 html[data-theme="cnc"] [data-active-tab],
 html[data-theme="terminal"] [data-active-tab] {
   text-transform: uppercase;

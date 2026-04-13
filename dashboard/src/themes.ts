@@ -1,5 +1,5 @@
 // Theme definitions for Corvus IDS dashboard.
-// Each theme sets CSS custom properties on document.documentElement at runtime —
+// Each theme sets CSS custom properties on document.documentElement at runtime;
 // no Tailwind rebuild needed for switching.
 
 export type ThemeName = 'corvus' | 'cnc' | 'terminal' | 'arctic'
@@ -15,7 +15,7 @@ export interface ThemeDef {
 }
 
 export const THEMES: ThemeDef[] = [
-  // ── Corvus (refined dark navy — original) ────────────────────────────────
+  // Corvus (refined dark navy - original)
   {
     name: 'corvus',
     label: 'Corvus',
@@ -61,7 +61,7 @@ export const THEMES: ThemeDef[] = [
     },
   },
 
-  // ── C&C (Command & Conquer — military phosphor CRT) ──────────────────────
+  // C&C (Command & Conquer - military phosphor CRT)
   {
     name: 'cnc',
     label: 'C&C',
@@ -107,7 +107,7 @@ export const THEMES: ThemeDef[] = [
     },
   },
 
-  // ── Terminal (classic green-on-black hacker) ──────────────────────────────
+  // Terminal (classic green-on-black hacker)
   {
     name: 'terminal',
     label: 'Terminal',
@@ -153,7 +153,7 @@ export const THEMES: ThemeDef[] = [
     },
   },
 
-  // ── Arctic (cold blue — sterile command center) ───────────────────────────
+  // Arctic (cold blue - sterile command center)
   {
     name: 'arctic',
     label: 'Arctic',

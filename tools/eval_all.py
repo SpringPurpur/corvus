@@ -47,7 +47,7 @@ DEFAULT_SCENARIO_ORDER = [
     "slow_body",
     "slow_read",
     "ssh_bruteforce",
-    "port_scan",          # ~1000 micro-flows — must precede high-volume scenarios
+    "port_scan",          # ~1000 micro-flows - must precede high-volume scenarios
     "syn_flood",          # single long-lived flow; needs table headroom to be recorded
     "http_flood",
     "goldeneye",
@@ -101,7 +101,7 @@ def reset(api: str) -> None:
 
 # -- DB snapshot --
 
-# flows.db is bind-mounted: ./data:/app/data — accessible directly on the host.
+# flows.db is bind-mounted: ./data:/app/data - accessible directly on the host.
 _DB_HOST_PATH = Path(__file__).parent.parent / "data" / "flows.db"
 
 
@@ -109,12 +109,12 @@ def snapshot_db(run_dir: Path, slug: str) -> None:
     """Copy flows.db from the bind-mounted data/ directory into the run directory.
 
     data/flows.db is mounted directly from the host (./data:/app/data in
-    docker-compose.yml), so no docker cp is needed — a plain file copy works.
+    docker-compose.yml), so no docker cp is needed; a plain file copy works.
     """
     import shutil
     dest = run_dir / f"flows_{slug}.db"
     if not _DB_HOST_PATH.exists():
-        print(f"[db] WARNING: {_DB_HOST_PATH} not found — skipping DB snapshot")
+        print(f"[db] WARNING: {_DB_HOST_PATH} not found - skipping DB snapshot")
         return
     try:
         shutil.copy2(str(_DB_HOST_PATH), str(dest))

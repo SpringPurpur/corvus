@@ -1,6 +1,6 @@
 # Corvus IDS
 
-A real-time network intrusion detection system using online machine learning and LLM-assisted alert explanation. Captures live traffic via libpcap, classifies flows with a multi-window Online Isolation Forest, and displays results in a browser dashboard — all in a single Docker Compose stack.
+A real-time network intrusion detection system using online machine learning and LLM-assisted alert explanation. Captures live traffic via libpcap, classifies flows with a multi-window Online Isolation Forest, and displays results in a browser dashboard - all in a single Docker Compose stack.
 
 ---
 
@@ -47,7 +47,7 @@ cd Corvus
 cp .env.example .env
 # Edit .env and set ANTHROPIC_API_KEY=sk-ant-... (required for LLM features)
 
-# Launch full stack — builds dashboard, starts all containers, opens browser
+# Launch full stack - builds dashboard, starts all containers, opens browser
 python launch.py
 ```
 
@@ -71,7 +71,7 @@ All configuration lives in two places: `.env` (secrets and deployment) and the *
 # Required for LLM alert explanation. Leave empty to disable LLM features.
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Network capture — leave empty for automatic detection (Docker bridge).
+# Network capture - leave empty for automatic detection (Docker bridge).
 # For SPAN/TAP port deployments, set to the physical NIC name, e.g. ens3.
 CAPTURE_INTERFACE=
 
@@ -89,7 +89,7 @@ CAPTURE_FILTER=
 | TCP baseline flows | 4096 | Flows required before TCP anomaly detection activates |
 | UDP baseline flows | 1024 | Flows required before UDP anomaly detection activates |
 
-Settings take effect **immediately** on save — no restart required. They are persisted to `inference/config.json` and survive container rebuilds.
+Settings take effect **immediately** on save - no restart required. They are persisted to `inference/config.json` and survive container rebuilds.
 
 **Reset Baseline** discards the trained OIF models and re-baselines on the next N flows of live traffic. Use this after clearing an attack so that attack flows do not pollute the model's definition of normal.
 
@@ -97,7 +97,7 @@ Settings take effect **immediately** on save — no restart required. They are p
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Anthropic API key for LLM features |
+| `ANTHROPIC_API_KEY` | *(none)* | Anthropic API key for LLM features |
 | `CAPTURE_INTERFACE` | *(auto)* | Network interface to capture on |
 | `CAPTURE_FILTER` | *(none)* | BPF filter expression |
 
@@ -115,9 +115,9 @@ Install the one extra host-side dependency:
 pip install pyyaml
 ```
 
-`msgpack` should already be installed from Quick Start. No other packages are needed — the runner uses only the Python standard library plus PyYAML.
+`msgpack` should already be installed from Quick Start. No other packages are needed - the runner uses only the Python standard library plus PyYAML.
 
-### Step 1 — Start the stack
+### Step 1 - Start the stack
 
 ```bash
 python launch.py
@@ -125,7 +125,7 @@ python launch.py
 
 Wait for the browser to open and the status bar to show the capture and models indicators as green dots.
 
-### Step 2 — Wait for baselining to complete
+### Step 2 - Wait for baselining to complete
 
 The anomaly detectors must build a statistical baseline before detection activates. The dashboard shows a pulsing **Baselining X%** indicator in the status bar while this is running. By default:
 - TCP: 4096 flows required
@@ -142,7 +142,7 @@ docker exec ids_client_b bash /scripts/fast_baseline.sh
 
 The indicator disappears when both TCP and UDP detectors are ready.
 
-### Step 3 — Run a scenario with the orchestrator
+### Step 3 - Run a scenario with the orchestrator
 
 The scenario runner handles baselining, timing, ground-truth annotation, and metrics calculation automatically:
 
@@ -198,10 +198,10 @@ Benign traffic quality
 ```
 
 **Key metrics:**
-- **First CRITICAL alert** — time-to-detect (TTD). Lower is better.
-- **Rejection rate** — fraction of attack flows the OIF refused to incorporate into its baseline. 100% means the poisoning defence was fully engaged.
-- **Recovery** — how quickly scores dropped after the attack ended. Reflects the forgetting speed of the fast window (256 flows).
-- **False positive rate** — CRITICAL alerts on benign flows during the same window. Should stay below 1–2%.
+- **First CRITICAL alert**: time-to-detect (TTD). Lower is better.
+- **Rejection rate**: fraction of attack flows the OIF refused to incorporate into its baseline. 100% means the poisoning defence was fully engaged.
+- **Recovery**: how quickly scores dropped after the attack ended. Reflects the forgetting speed of the fast window (256 flows).
+- **False positive rate**: CRITICAL alerts on benign flows during the same window. Should stay below 1-2%.
 
 Results JSON is saved to `scenarios/results/<scenario_name>_<timestamp>.json` for cross-run comparison.
 
@@ -266,16 +266,16 @@ This discards the trained OIF models and restarts baselining from zero.
 | **WebSocket** dot | Connection to inference engine |
 | **Capture** dot | C engine is running and sending flows |
 | **Models** dot | Anomaly detectors are loaded |
-| **Baselining X%** | Warmup phase — not yet detecting |
+| **Baselining X%** | Warmup phase - not yet detecting |
 | **TCP / UDP alert counts** | Total alerts in current session |
 | **⚙** | Open detection settings panel |
 
 ### Alert Feed (left panel)
 
 Scrollable table of flow alerts, colour-coded by severity:
-- **Grey** — INFO (below HIGH threshold)
-- **Amber** — HIGH
-- **Red** — CRITICAL
+- **Grey** - INFO (below HIGH threshold)
+- **Amber** - HIGH
+- **Red** - CRITICAL
 
 Click any row to open the detail panel.
 
@@ -289,7 +289,7 @@ When an alert is selected:
 
 ### LLM Panel (right, bottom half)
 
-- **AI Explanation**: auto-requested on alert selection — 2–3 sentence analyst-facing summary referencing the top attributed features
+- **AI Explanation**: auto-requested on alert selection - 2-3 sentence analyst-facing summary referencing the top attributed features
 - **Dismiss as false positive**: records analyst feedback
 - **Ask Claude**: free-text question about the selected alert; Claude has access to the full alert dict including scores and attribution
 
@@ -320,7 +320,7 @@ make -j$(nproc)
 # Run unit tests (AVX2 functions)
 ./test_features     # all tests must PASS before using the engine
 
-# Debug tool — prints incoming flows as JSON
+# Debug tool - prints incoming flows as JSON
 ./inspect_ipc &
 ./capture_engine -i <interface>
 ```
@@ -330,11 +330,11 @@ make -j$(nproc)
 By default `launch.py` reuses existing Docker images for a fast startup. Pass `--build` to force a rebuild after changing source files:
 
 ```bash
-python launch.py           # fast — reuses existing images
+python launch.py           # fast - reuses existing images
 python launch.py --build   # rebuilds images (needed after changes to capture/, inference/, or attacker/)
 ```
 
-The dashboard build step has its own staleness check and only reruns when source files in `dashboard/src/` are newer than the last `dist/` output — it is unaffected by `--build`.
+The dashboard build step has its own staleness check and only reruns when source files in `dashboard/src/` are newer than the last `dist/` output - it is unaffected by `--build`.
 
 To force a full image rebuild without the cache:
 
@@ -359,9 +359,9 @@ docker --context default compose down
 ```
 
 This stops all containers but preserves:
-- `inference/models/tcp_oif.pkl`, `udp_oif.pkl` — trained OIF models (no re-baselining on next start)
-- `inference/config.json` — saved threshold settings
-- `data/flows.db` — SQLite alert history
+- `inference/models/tcp_oif.pkl`, `udp_oif.pkl` - trained OIF models (no re-baselining on next start)
+- `inference/config.json` - saved threshold settings
+- `data/flows.db` - SQLite alert history
 
 To reset everything including trained models:
 

@@ -15,7 +15,7 @@ import { EntityList } from './components/EntityList'
 import { NetworkPulse } from './components/NetworkPulse'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 
-// Accumulated LLM responses keyed by request_id — never reset, grows per session
+// Accumulated LLM responses keyed by request_id - never reset, grows per session
 const llmResponses: Record<string, string> = {}
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -47,7 +47,7 @@ function AppInner() {
   // Search query
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Notification gate — don't fire for history loaded at startup
+  // Notification gate - don't fire for history loaded at startup
   const notifyEnabledRef = useRef(false)
 
   const { theme } = useTheme()
@@ -88,7 +88,7 @@ function AppInner() {
     return () => clearTimeout(t)
   }, [])
 
-  // Document title badge — total CRITICAL count
+  // Document title badge - total CRITICAL count
   useEffect(() => {
     const n = [...tcp, ...udp].filter(a => a.verdict.severity === 'CRITICAL').length
     document.title = n > 0 ? `(${n}) Corvus IDS` : 'Corvus IDS'
@@ -135,7 +135,7 @@ function AppInner() {
       'Notification' in window &&
       Notification.permission === 'granted'
     ) {
-      new Notification('Corvus IDS — Critical Alert', {
+      new Notification('Corvus IDS - Critical Alert', {
         body: `${msg.data.src_ip} → ${msg.data.dst_ip}:${msg.data.dst_port}  (score ${msg.data.verdict.score?.toFixed(2) ?? '?'})`,
         icon: '/favicon.ico',
         tag: msg.data.flow_id,   // collapse duplicates for same flow
@@ -146,7 +146,7 @@ function AppInner() {
 
   const { connected, send } = useWebSocket(onMessage)
 
-  // Protocol split — all flows for the current tab (fed to EntityList + NetworkPulse)
+  // Protocol split - all flows for the current tab (fed to EntityList + NetworkPulse)
   const alerts = tab === 'TCP' ? tcp : udp
   const allAlerts = [...tcp, ...udp]
 
@@ -183,7 +183,7 @@ function AppInner() {
     setEntityFilter(null)
   }
 
-  // ── API key gate ──────────────────────────────────────────────────────────
+  // API key gate
   if (needsApiKey) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background" data-theme={theme}>
@@ -281,7 +281,7 @@ function AppInner() {
           </div>
         ) : (
           <>
-            {/* Entity list — narrow left column */}
+            {/* Entity list - narrow left column */}
             <EntityList
               alerts={alerts}
               activeIp={entityFilter}
@@ -312,7 +312,7 @@ function AppInner() {
               />
             </div>
 
-            {/* Detail + LLM — right panel, shown only when an alert is selected */}
+            {/* Detail + LLM - right panel, shown only when an alert is selected */}
             {selected && (
               <div className="w-96 flex flex-col border-r overflow-hidden shrink-0">
                 <div className="h-1/2 border-b overflow-hidden">

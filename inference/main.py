@@ -1,14 +1,14 @@
-# main.py — starts all threads and runs uvicorn.
+# main.py - starts all threads and runs uvicorn.
 #
 # Thread layout:
-#   Thread 1 (daemon): Unix socket server  — socket_reader.run_socket_server()
-#   Thread 2 (daemon): flow router         — dispatches flow_queue → tcp_queue / udp_queue
-#   Thread 3 (daemon): TCP inference worker — reads tcp_queue, runs classifier
-#   Thread 4 (daemon): UDP inference worker — reads udp_queue, runs classifier
-#   Thread 5 (main):   uvicorn asyncio event loop — FastAPI + WebSocket
+#   Thread 1 (daemon): Unix socket server  - socket_reader.run_socket_server()
+#   Thread 2 (daemon): flow router         - dispatches flow_queue -> tcp_queue / udp_queue
+#   Thread 3 (daemon): TCP inference worker - reads tcp_queue, runs classifier
+#   Thread 4 (daemon): UDP inference worker - reads udp_queue, runs classifier
+#   Thread 5 (main):   uvicorn asyncio event loop - FastAPI + WebSocket
 #
 # Protocol split rationale: tcp_detector and udp_detector have zero shared
-# state — splitting them onto separate threads gives true parallel inference
+# state; splitting them onto separate threads gives true parallel inference
 # without any locking. During a SYN flood (TCP-only), the UDP worker is
 # unaffected. Each worker accesses only its own detector, so the OIF arrays
 # are never accessed from two threads simultaneously.
@@ -36,11 +36,11 @@ from ws_handler import manager, notify_capture_up
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
 )
 log = logging.getLogger(__name__)
 
-# ── First-flow synchronisation ─────────────────────────────────────────────────
+# first-flow synchronisation
 # Either protocol worker may see the first flow. Use a threading.Event so the
 # "capture is up" signal fires exactly once regardless of which worker fires first.
 _capture_event = threading.Event()
@@ -53,7 +53,7 @@ def _router(
 ) -> None:
     """Dispatch flows from the shared socket queue to protocol-specific queues.
 
-    Other protocols are dropped here — process_flow already filters them, but
+    Other protocols are dropped here; process_flow already filters them, but
     routing keeps the per-protocol workers clean and removes any dict lookup
     from their hot path.
     """
@@ -94,11 +94,11 @@ def _protocol_worker(
         except queue.Empty:
             continue
 
-        # Stamp dequeue time immediately — measures pure queue wait
+        # stamp dequeue time; measures pure queue wait
         # (time between socket_reader putting the flow and this worker picking it up).
         flow["_t_dequeue_ns"] = time.time_ns()
 
-        # ── Signal capture-engine liveness on the first flow (any protocol) ───
+        # signal capture-engine liveness on the first flow
         if not _capture_event.is_set():
             _capture_event.set()
             notify_capture_up()
@@ -128,7 +128,7 @@ def _protocol_worker(
             )
             continue
 
-        # ── Detect tcp_detector readiness transition ──────────────────────────
+        # detect tcp_detector readiness transition
         # Both workers check tcp_detector.is_ready because the dashboard "Models"
         # indicator is keyed on TCP (the primary detector). UDP readiness is
         # surfaced through the stats message.
@@ -149,7 +149,7 @@ def _protocol_worker(
         loop.call_soon_threadsafe(alert_queue.put_nowait, alert)
 
         # Broadcast OIF health metrics every 20 flows.
-        # Both workers broadcast combined tcp+udp stats — the dashboard
+        # Both workers broadcast combined tcp+udp stats; the dashboard
         # always gets a fresh view regardless of which protocol is active.
         _stats_counter += 1
         if _stats_counter % 20 == 0:
@@ -182,7 +182,7 @@ async def _broadcast_worker(alert_queue: asyncio.Queue) -> None:
 async def _run(args: argparse.Namespace) -> None:
     loop = asyncio.get_running_loop()
 
-    # Unbounded queues — socket reader and router must never block on put().
+    # Unbounded queues; socket reader and router must never block on put().
     flow_queue: queue.Queue = queue.Queue()
     tcp_queue:  queue.Queue = queue.Queue()
     udp_queue:  queue.Queue = queue.Queue()
@@ -192,12 +192,12 @@ async def _run(args: argparse.Namespace) -> None:
 
     classifier = Classifier(anomaly_only=args.anomaly_only)
     if args.anomaly_only:
-        log.warning("Running in anomaly-only mode — classification models not loaded")
+        log.warning("Running in anomaly-only mode - classification models not loaded")
 
     configure(alert_queue, llm,
               tcp_queue=tcp_queue, udp_queue=udp_queue, flow_queue=flow_queue)
 
-    # Thread 1 — Unix socket server
+    # thread 1 - Unix socket server
     threading.Thread(
         target=run_socket_server,
         args=(flow_queue,),
@@ -205,7 +205,7 @@ async def _run(args: argparse.Namespace) -> None:
         name="socket-reader",
     ).start()
 
-    # Thread 2 — router
+    # thread 2 - router
     threading.Thread(
         target=_router,
         args=(flow_queue, tcp_queue, udp_queue),
@@ -213,7 +213,7 @@ async def _run(args: argparse.Namespace) -> None:
         name="flow-router",
     ).start()
 
-    # Thread 3 — TCP inference worker
+    # thread 3 - TCP inference worker
     threading.Thread(
         target=_protocol_worker,
         args=(tcp_queue, alert_queue, loop, classifier, "TCP",
@@ -222,7 +222,7 @@ async def _run(args: argparse.Namespace) -> None:
         name="tcp-worker",
     ).start()
 
-    # Thread 4 — UDP inference worker
+    # thread 4 - UDP inference worker
     threading.Thread(
         target=_protocol_worker,
         args=(udp_queue, alert_queue, loop, classifier, "UDP",
@@ -231,10 +231,10 @@ async def _run(args: argparse.Namespace) -> None:
         name="udp-worker",
     ).start()
 
-    # Asyncio task — broadcast worker
+    # asyncio task - broadcast worker
     asyncio.create_task(_broadcast_worker(alert_queue))
 
-    # Thread 5 — uvicorn (runs inside the asyncio loop)
+    # thread 5 - uvicorn (runs inside the asyncio loop)
     config = uvicorn.Config(
         app,
         host="0.0.0.0",

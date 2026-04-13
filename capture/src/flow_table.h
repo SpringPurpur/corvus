@@ -1,17 +1,17 @@
 /*
- * flow_table.h — fixed-size flow table using FNV-1a hash with linear probing.
+ * flow_table.h - fixed-size flow table using FNV-1a hash with linear probing.
  *
  * Flows are keyed on normalised 5-tuple (lower IP → src). Table size is a
  * power of 2 so slot index is computed with bitmask, not modulo. Robin Hood
  * repair on delete keeps probe sequences short under high load.
  *
- * Not thread-safe — all access from the packet callback thread only.
+ * Not thread-safe; all access from the packet callback thread only.
  */
 #pragma once
 #include "flow_types.h"
 #include "packet_parser.h"
 
-// Power of 2 — enables fast bitmask slot lookup instead of modulo.
+// Power of 2; enables fast bitmask slot lookup instead of modulo.
 // 65536 slots × sizeof(flow_record_t) ≈ 1.7 GB; acceptable for a server.
 #define FLOW_TABLE_SIZE     65536
 
@@ -19,15 +19,15 @@
 // 120s matches CICFlowMeter's default idle timeout exactly.
 #define FLOW_IDLE_TIMEOUT_NS    120000000000ULL
 
-// UDP flows have no FIN/RST — without an active timeout a sustained flood
+// UDP flows have no FIN/RST; without an active timeout a sustained flood
 // would accumulate silently for 120s after the last packet. 10s catches
 // floods that are still in progress and emits partial flows for detection.
-// TCP SYN floods also rely on this — hping3 never completes the handshake
+// TCP SYN floods also rely on this; hping3 never completes the handshake
 // so there is no FIN/RST; flows complete here rather than at the idle timeout.
 // 10s instead of 30s: smaller burst at expiry, better detection latency.
 #define FLOW_ACTIVE_TIMEOUT_NS   10000000000ULL
 
-/* Opaque table — allocate statically in main.c, pass pointer everywhere. */
+/* Opaque table - allocate statically in main.c, pass pointer everywhere. */
 typedef struct flow_table flow_table_t;
 
 struct flow_table {
@@ -64,10 +64,10 @@ void flow_table_remove(flow_table_t *t, flow_record_t *flow);
 /*
  * Scan the table and call cb for every flow whose last packet was more than
  * FLOW_IDLE_TIMEOUT_NS nanoseconds ago. The callback should finalise the
- * flow and emit it; the flow is NOT automatically removed — the callback
+ * flow and emit it; the flow is NOT automatically removed - the callback
  * must call flow_table_remove() if it wants to reclaim the slot.
  *
- * now_ns — current time in nanoseconds (passed in to avoid repeated syscalls)
+ * now_ns: current time in nanoseconds (passed in to avoid repeated syscalls)
  */
 void flow_table_expire(flow_table_t *t, uint64_t now_ns,
                        void (*cb)(flow_record_t *flow, void *ctx),

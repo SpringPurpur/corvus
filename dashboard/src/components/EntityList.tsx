@@ -16,7 +16,7 @@ interface EntityEntry {
   bucketSev:    Severity[]  // peak severity per bucket
 }
 
-// Tiny bar chart — height encodes rate, colour encodes peak severity.
+// Tiny bar chart - height encodes rate, colour encodes peak severity.
 function IpSparkline({ buckets, bucketSev }: { buckets: number[]; bucketSev: Severity[] }) {
   const max = Math.max(...buckets, 1)
   const W   = BUCKET_COUNT * 5   // 5 viewBox units per bucket
@@ -148,7 +148,7 @@ export function EntityList({ alerts, activeIp, onSelect }: Props) {
                   )}
                 </div>
 
-                {/* Alert rate sparkline — last 4 min, 8 × 30 s buckets */}
+                {/* Alert rate sparkline - last 4 min, 8 x 30 s buckets */}
                 <IpSparkline buckets={e.buckets} bucketSev={e.bucketSev} />
 
                 {/* Peak score bar */}

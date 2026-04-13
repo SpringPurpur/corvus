@@ -1,4 +1,4 @@
-# ids_capture — C Capture Engine
+# ids_capture - C Capture Engine
 
 Real-time libpcap flow tracker for the Corvus IDS.
 
@@ -31,17 +31,17 @@ make -j$(nproc)
 
 ```
 src/
-  flow_types.h        — flow_key_t and flow_record_t struct definitions
-  packet_parser.h/.c  — Ethernet/IP/TCP/UDP zero-copy parser
-  flow_table.h/.c     — FNV-1a hash map, 65536 slots, linear probe
-  features.h/.c       — per-packet accumulation + AVX2 finalisation
-  ipc_writer.h/.c     — Unix domain socket client with ring buffer
-  main.c              — libpcap loop and pcap callback
+  flow_types.h        - flow_key_t and flow_record_t struct definitions
+  packet_parser.h/.c  - Ethernet/IP/TCP/UDP zero-copy parser
+  flow_table.h/.c     - FNV-1a hash map, 65536 slots, linear probe
+  features.h/.c       - per-packet accumulation + AVX2 finalisation
+  ipc_writer.h/.c     - Unix domain socket client with ring buffer
+  main.c              - libpcap loop and pcap callback
 
 asm/
-  features_avx2.asm   — AVX2 mean/std and flag-count routines
+  features_avx2.asm   - AVX2 mean/std and flag-count routines
 
 tests/
-  test_features.c     — unit tests (no network required)
-  inspect_ipc.c       — debug: binds socket, prints flows as JSON
+  test_features.c     - unit tests (no network required)
+  inspect_ipc.c       - debug: binds socket, prints flows as JSON
 ```

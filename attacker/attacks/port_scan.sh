@@ -1,5 +1,5 @@
 #!/bin/sh
-# port_scan.sh — TCP SYN port scan against victim_web.
+# port_scan.sh - TCP SYN port scan against victim_web.
 # Generates many micro-flows: 2-3 packets each, high rst_flag_cnt,
 # very short flow_duration_s. Signature is opposite of floods:
 # breadth (many destinations/ports) vs depth (one flow, many packets).

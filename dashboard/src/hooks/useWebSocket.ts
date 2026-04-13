@@ -1,7 +1,7 @@
-// useWebSocket.ts — manages the WebSocket connection to the inference engine.
+// useWebSocket.ts - manages the WebSocket connection to the inference engine.
 //
 // Reconnects automatically with exponential backoff (1s → 2s → 4s → … → 30s).
-// All messages are MessagePack binary — never JSON. Incoming frames are decoded
+// All messages are MessagePack binary, never JSON. Incoming frames are decoded
 // and dispatched via onMessage; outgoing frames are encoded before send.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -50,7 +50,7 @@ export function useWebSocket(
         }
         onMessageRef.current(msg)
       } catch {
-        // malformed frame — ignore
+        // malformed frame - ignore
       }
     }
 

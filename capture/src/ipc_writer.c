@@ -1,13 +1,13 @@
 /*
- * ipc_writer.c — Unix domain socket IPC, ring buffer, background sender.
+ * ipc_writer.c - Unix domain socket IPC, ring buffer, background sender.
  *
- * The packet callback thread enqueues via ipc_writer_enqueue() — lock-free
+ * The packet callback thread enqueues via ipc_writer_enqueue(); lock-free
  * write to the ring with an atomic index update. The sender thread drains
  * the ring and writes to the socket; it reconnects if the socket drops.
  *
  * Ring buffer layout: head = next write position (producer), tail = next
  * read position (consumer). Full condition: (head - tail) == capacity.
- * Empty condition: head == tail. Single producer, single consumer — no CAS
+ * Empty condition: head == tail. Single producer, single consumer - no CAS
  * needed, only compiler barriers to prevent reordering.
  */
 
@@ -30,7 +30,7 @@ static uint64_t _enqueue_ns(void)
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
-/* ── Ring buffer ─────────────────────────────────────────────────────────── */
+/* --- ring buffer --- */
 
 static flow_record_t  ring[IPC_RING_CAPACITY];
 
@@ -43,7 +43,7 @@ static _Atomic int      running   = 1;   // set to 0 by ipc_writer_shutdown()
 
 static uint64_t drops = 0;               // flows dropped due to full ring
 
-/* ── Socket ──────────────────────────────────────────────────────────────── */
+/* --- socket --- */
 
 static int sock_fd = -1;
 
@@ -90,7 +90,7 @@ static int write_all(int fd, const void *buf, size_t n)
     return 0;
 }
 
-/* ── Sender thread ────────────────────────────────────────────────────────── */
+/* --- sender thread --- */
 
 static void *sender_thread(void *arg)
 {
@@ -98,17 +98,17 @@ static void *sender_thread(void *arg)
     uint32_t payload_len = sizeof(flow_record_t);
 
     while (atomic_load(&running) || atomic_load(&ring_head) != atomic_load(&ring_tail)) {
-        // Reconnect loop — retry every 100ms until Python server is up
+        // Retry every 100ms until Python server is up
         while (sock_fd < 0 && atomic_load(&running)) {
             if (connect_socket() < 0)
-                usleep(100000);   // 100ms — short enough to not miss flows
+                usleep(100000);   // 100ms backoff
         }
 
         uint32_t head = atomic_load(&ring_head);
         uint32_t tail = atomic_load(&ring_tail);
 
         if (head == tail) {
-            // Ring empty — yield without spinning at 100% CPU
+            // ring empty - yield without spinning
             usleep(1000);   // 1ms
             continue;
         }
@@ -117,8 +117,7 @@ static void *sender_thread(void *arg)
         uint32_t slot = tail & (IPC_RING_CAPACITY - 1);
         const flow_record_t *flow = &ring[slot];
 
-        // Write length prefix then struct — two writes is fine here since
-        // we are not in the hot capture path
+        // Two writes (length prefix then struct) - fine here, not the hot path
         int err = write_all(sock_fd, &payload_len, sizeof(payload_len));
         if (err == 0)
             err = write_all(sock_fd, flow, sizeof(flow_record_t));
@@ -127,7 +126,7 @@ static void *sender_thread(void *arg)
             fprintf(stderr, "[ipc] send error, reconnecting...\n");
             close(sock_fd);
             sock_fd = -1;
-            // Do not advance tail — retry this flow after reconnect
+            // do not advance tail - retry this flow after reconnect
             continue;
         }
 
@@ -141,7 +140,7 @@ static void *sender_thread(void *arg)
     return NULL;
 }
 
-/* ── Public API ───────────────────────────────────────────────────────────── */
+/* --- public API --- */
 
 void ipc_writer_init(void)
 {
@@ -163,7 +162,7 @@ void ipc_writer_enqueue(const flow_record_t *flow)
     uint32_t tail = atomic_load(&ring_tail);
 
     if (head - tail >= IPC_RING_CAPACITY) {
-        // Ring full — drop oldest by advancing tail
+        // ring full - drop oldest by advancing tail
         atomic_store(&ring_tail, tail + 1);
         drops++;
         if (drops % 100 == 0)
@@ -172,7 +171,7 @@ void ipc_writer_enqueue(const flow_record_t *flow)
     }
 
     uint32_t slot = head & (IPC_RING_CAPACITY - 1);
-    // Copy before updating head — ensures the sender sees a complete record
+    // Copy before updating head so the sender sees a complete record.
     ring[slot] = *flow;
     // Stamp enqueue time on the ring slot copy. This is the correct IPC-start
     // timestamp: t_socket_ns - t_enqueue_ns = actual wire+decode latency (~µs).

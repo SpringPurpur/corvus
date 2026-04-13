@@ -1,8 +1,8 @@
-# online_detector.py — multi-window streaming anomaly detection for TCP and UDP.
+# online_detector.py - multi-window streaming anomaly detection for TCP and UDP.
 #
 # Implements Online Isolation Forest (Leveni et al., ICML 2024) natively in Python.
 # The algorithm maintains adaptive histogram trees that grow and collapse as data
-# arrives and departs the sliding window — no batch retraining, no Java dependency.
+# arrives and departs the sliding window; no batch retraining, no Java dependency.
 #
 # Three models per protocol at different window sizes (256/1024/4096) weighted
 # 0.20/0.30/0.50. Slower windows resist poisoning: a flood must outlast 4096 flows
@@ -10,19 +10,19 @@
 #
 # Explainability: path-depth attribution over OIF trees. Splits are data-adaptive
 # (chosen from actual observed ranges), so the feature at each split node is the
-# one that most effectively partitioned the data around this point — more meaningful
+# one that most effectively partitioned the data around this point; more meaningful
 # than HST's random half-space cuts.
 #
 # Tree implementation: flat numpy arrays instead of linked Python objects.
 # Nodes are stored in parallel pre-allocated arrays indexed by an integer ID.
-# The scoring hot path is a tight while loop over integer array indices — no
+# The scoring hot path is a tight while loop over integer array indices; no
 # dict lookups, no Python object attribute access, no recursion overhead.
 # This makes the per-flow cost ~5-10× lower than the linked-node implementation
 # and is structured for straightforward Cython compilation (all array accesses
 # are bounded, types are statically known).
 #
 # Thread model: one dedicated thread per protocol (TCP, UDP). Each thread owns
-# its detector exclusively — no locking required within MultiWindowOIF.
+# its detector exclusively; no locking required within MultiWindowOIF.
 # See main.py for the router + worker layout.
 #
 # Reference: Leveni F., Cassales G.W., Pfahringer B., Bifet A., Boracchi G.
@@ -43,18 +43,18 @@ import config as _cfg_module
 
 log = logging.getLogger(__name__)
 
-# ── Cython hot-path import ─────────────────────────────────────────────────────
+# Cython hot-path import
 # Compiled at container build time via:  python setup_ext.py build_ext --inplace
 # Falls back to pure-Python implementations in _ArrayTree if absent.
 try:
     from _array_tree import score_one_cy as _cy_score, attribute_path_cy as _cy_attr
     _CY = True
-    log.info("Cython _array_tree extension loaded — using compiled hot paths")
+    log.info("Cython _array_tree extension loaded - using compiled hot paths")
 except ImportError:
     _CY = False
-    log.info("Cython _array_tree not found — using pure-Python hot paths")
+    log.info("Cython _array_tree not found - using pure-Python hot paths")
 
-# ── Feature definitions ────────────────────────────────────────────────────────
+# feature definitions
 #
 # Selected on three principles from the network measurement literature:
 #   1. Temporal regularity (Paxson & Floyd 1995, Leland et al. 1994)
@@ -93,7 +93,7 @@ TCP_IF_FEATURE_NAMES = [name for name, _ in TCP_IF_FEATURES]
 UDP_IF_FEATURE_NAMES = [name for name, _ in UDP_IF_FEATURES]
 
 # IPs suppressed when cfg.filter_gateway=True (developer mode toggle).
-# 172.20.0.1 is the Docker bridge gateway — all host-side API calls,
+# 172.20.0.1 is the Docker bridge gateway; all host-side API calls,
 # dashboard WebSocket connections, and eval script polls originate here.
 MANAGEMENT_IPS: frozenset[str] = frozenset({"172.20.0.1"})
 
@@ -102,19 +102,19 @@ def _extract(flow: dict, features: list[tuple[str, callable]]) -> np.ndarray:
     return np.array([fn(flow) for _, fn in features], dtype=np.float64)
 
 
-# ── Pickle compatibility stubs ─────────────────────────────────────────────────
+# pickle compatibility stubs
 # Saved models from the linked-node era contain _OIFNode / OnlineIsolationTree
 # objects. Keep empty stubs so pickle can deserialise the old files without
-# crashing — MultiWindowOIF._compatible_with() rejects them via _TREE_VERSION.
+# crashing; MultiWindowOIF._compatible_with() rejects them via _TREE_VERSION.
 
 class _OIFNode:
-    """Compatibility stub — old linked-node format. Not used by new code."""
+    """Compatibility stub - old linked-node format. Not used by new code."""
 
 class OnlineIsolationTree:
-    """Compatibility stub — old linked-node format. Not used by new code."""
+    """Compatibility stub - old linked-node format. Not used by new code."""
 
 
-# ── Array-based Online Isolation Tree ─────────────────────────────────────────
+# array-based Online Isolation Tree
 
 class _ArrayTree:
     """Online Isolation Tree with flat numpy array storage.
@@ -151,7 +151,7 @@ class _ArrayTree:
         self._n_alloc = 0            # next slot index
         self._free:  list[int] = []  # recycled slots
 
-        # Node arrays — all parallel, indexed by node ID
+        # node arrays - all parallel, indexed by node ID
         self._feat_idx  = np.full(cap, -1, dtype=np.int32)      # split feature; -1 = leaf
         self._threshold = np.zeros(cap,     dtype=np.float64)   # split threshold
         self._left      = np.zeros(cap,     dtype=np.int32)     # left child index
@@ -161,7 +161,7 @@ class _ArrayTree:
         self._min_val   = np.zeros((cap, n_features), dtype=np.float64)
         self._max_val   = np.zeros((cap, n_features), dtype=np.float64)
 
-    # ── allocation ────────────────────────────────────────────────────────────
+    # allocation
 
     def _alloc(self) -> int:
         if self._free:
@@ -185,7 +185,7 @@ class _ArrayTree:
         self._min_val   = np.vstack([self._min_val, np.zeros((old, self.n_features))])
         self._max_val   = np.vstack([self._max_val, np.zeros((old, self.n_features))])
 
-    # ── split threshold ───────────────────────────────────────────────────────
+    # split threshold
 
     def _split_threshold(self, depth: int) -> int:
         # Adaptive criterion from Leveni et al. §3.
@@ -196,7 +196,7 @@ class _ArrayTree:
             return 0.0
         return math.log2(h / self.max_leaf_samples)
 
-    # ── learn ─────────────────────────────────────────────────────────────────
+    # learn
 
     def learn_one(self, x: np.ndarray, max_depth: int) -> None:
         if self._root < 0:
@@ -268,14 +268,14 @@ class _ArrayTree:
         self._left[node]      = l
         self._right[node]     = r
 
-    # ── unlearn ───────────────────────────────────────────────────────────────
+    # unlearn
 
     def unlearn_one(self, x: np.ndarray) -> None:
         if self._root < 0:
             return
 
         # Phase 1: walk down, decrement h, check for collapse top-down.
-        # Collapsing at a node avoids descending further — same semantics as
+        # Collapsing at a node avoids going further; same semantics as
         # the original recursive implementation.
         node  = self._root
         path: list[int] = []   # internal nodes visited before the leaf
@@ -301,7 +301,7 @@ class _ArrayTree:
             node = int(self._left[node]) if x[fi] < self._threshold[node] \
                    else int(self._right[node])
 
-        # Phase 2: reached the leaf — decrement and update bounding boxes bottom-up
+        # phase 2: reached the leaf - decrement and update bounding boxes bottom-up
         self._h[node] -= 1
         for p in reversed(path):
             l = int(self._left[p]);  r = int(self._right[p])
@@ -332,10 +332,10 @@ class _ArrayTree:
                 self._feat_idx[nd] = -1
             self._free.append(nd)
 
-    # ── score ─────────────────────────────────────────────────────────────────
+    # score
 
     def score_one(self, x: np.ndarray) -> float:
-        """Path depth + leaf correction. The hot path — tight array index loop."""
+        """Path depth + leaf correction. Hot path - tight array index loop."""
         if self._root < 0:
             return 0.0
         if _CY:
@@ -352,7 +352,7 @@ class _ArrayTree:
             depth += 1
         return depth + self._leaf_correction(int(self._h[node]))
 
-    # ── attribution ───────────────────────────────────────────────────────────
+    # attribution
 
     def attribute_path(
         self,
@@ -379,12 +379,12 @@ class _ArrayTree:
             depth += 1
 
 
-# ── Online Isolation Forest — Leveni et al. ICML 2024 ─────────────────────────
+# Online Isolation Forest (Leveni et al. ICML 2024)
 
 class OnlineIsolationForest:
     """Ensemble of _ArrayTrees with a sliding window.
 
-    All internal APIs take np.ndarray (not dict) — the caller is responsible
+    All internal APIs take np.ndarray (not dict); the caller is responsible
     for converting the flow feature vector to a numpy array before calling.
 
     Anomaly score = 2^(-E[depth] / c(ω, η)) where c(ω, η) = log₂(ω/η).
@@ -443,7 +443,7 @@ class OnlineIsolationForest:
             tree.attribute_path(x, model_weight, feat_scores)
 
 
-# ── Multi-window result types ──────────────────────────────────────────────────
+# multi-window result types
 
 class WindowScores(NamedTuple):
     fast:      float
@@ -452,7 +452,7 @@ class WindowScores(NamedTuple):
     composite: float   # 0.20×fast + 0.30×medium + 0.50×slow
 
 
-# ── Multi-window OIF detector ──────────────────────────────────────────────────
+# multi-window OIF detector
 
 class MultiWindowOIF:
     """Three OnlineIsolationForest models at window sizes 256/1024/4096.
@@ -464,7 +464,7 @@ class MultiWindowOIF:
 
     Thread safety: each MultiWindowOIF instance must be accessed from exactly
     one thread. The caller (main.py) ensures this via the protocol-split worker
-    layout — tcp_detector owned by tcp_worker, udp_detector by udp_worker.
+    layout: tcp_detector owned by tcp_worker, udp_detector by udp_worker.
     """
 
     _WINDOWS = (256, 1024, 4096)
@@ -475,7 +475,7 @@ class MultiWindowOIF:
     # v1 = linked _OIFNode objects; v2 = flat _ArrayTree arrays (current).
     _TREE_VERSION = 2
 
-    # Flows scoring at or above this threshold are withheld from training —
+    # Flows scoring at or above this threshold are withheld from training;
     # prevents attack traffic from shifting the model's definition of normal.
     TRAIN_THRESHOLD = 0.80
 
@@ -525,7 +525,7 @@ class MultiWindowOIF:
         self._cooldown   = 0
         self._score_buf: deque[float] = deque(maxlen=500)
 
-    # ── baselining ────────────────────────────────────────────────────────────
+    # baselining
 
     @property
     def is_ready(self) -> bool:
@@ -573,11 +573,11 @@ class MultiWindowOIF:
 
         self._baseline_complete = True
         self._baseline_buffer.clear()
-        log.info("[%s OIF] Baseline complete on %d flows — detection active",
+        log.info("[%s OIF] Baseline complete on %d flows - detection active",
                  self.protocol, self.BASELINE_FLOWS)
         self.save()
 
-    # ── persistence ───────────────────────────────────────────────────────────
+    # persistence
 
     def save(self) -> None:
         if self._save_path is None:
@@ -612,7 +612,7 @@ class MultiWindowOIF:
         version_ok = getattr(self, "_TREE_VERSION", 1) == MultiWindowOIF._TREE_VERSION
         return self.feature_names == feature_names and version_ok
 
-    # ── inference ─────────────────────────────────────────────────────────────
+    # inference
 
     @property
     def _cooldown_active(self) -> bool:
@@ -643,7 +643,7 @@ class MultiWindowOIF:
                       self.feature_names[worst_i], worst_dev)
 
         if oor_score >= self.TRAIN_THRESHOLD:
-            # Fast path: extreme outlier — skip 96-tree traversal entirely.
+            # fast path: extreme outlier - skip 96-tree traversal entirely.
             # Points this far outside the training bounding box are always CRITICAL
             # regardless of the OIF path length. Attribution names the worst feature.
             composite  = oor_score
@@ -676,7 +676,7 @@ class MultiWindowOIF:
             self._cooldown -= 1
             self._n_frozen += 1
         else:
-            # x_scaled defined — only reachable via the normal path
+            # x_scaled defined; only reachable via the normal path
             for model in self._models:
                 model.learn_one(x_scaled)
             self._n_trained += 1
@@ -685,18 +685,18 @@ class MultiWindowOIF:
 
         return window_scores, attribution, oor_score
 
-    # ── false-positive feedback ───────────────────────────────────────────────
+    # false-positive feedback
 
     def reinforce_normal(self, raw: np.ndarray) -> None:
         """Force-learn a flow as normal, bypassing the anomaly score threshold.
 
         Called when an analyst marks a flow as a false positive. Passes the
         feature vector directly to learn_one() on all window models so the trees
-        shift to treat similar flows as less anomalous — no retraining from
+        shift to treat similar flows as less anomalous; no retraining from
         scratch required since the OIF is already incremental.
         """
         if not self._baseline_complete or not self._scaler_fitted:
-            log.warning("[%s OIF] reinforce_normal called before baseline — ignoring",
+            log.warning("[%s OIF] reinforce_normal called before baseline - ignoring",
                         self.protocol)
             return
         x_scaled = self._scaler.transform(raw.reshape(1, -1))[0]
@@ -708,7 +708,7 @@ class MultiWindowOIF:
         if self._n_trained % self._SAVE_INTERVAL == 0:
             self.save()
 
-    # ── path-depth attribution ────────────────────────────────────────────────
+    # path-depth attribution
 
     def _attribute(
         self,
@@ -719,7 +719,7 @@ class MultiWindowOIF:
 
         feat_scores is a numpy array accumulated in-place across all trees.
         Model weights (0.20/0.30/0.50) are applied so the slow model's trees
-        dominate — matching their dominance in the composite score.
+        dominate; matching their dominance in the composite score.
         """
         feat_scores = np.zeros(len(self.feature_names), dtype=np.float64)
         for model, weight in zip(self._models, self._WEIGHTS):
@@ -738,7 +738,7 @@ class MultiWindowOIF:
             for i in top3_idx
         ]
 
-    # ── health metrics ────────────────────────────────────────────────────────
+    # health metrics
 
     def metrics(self) -> dict:
         buf = list(self._score_buf)
@@ -757,7 +757,7 @@ class MultiWindowOIF:
             "n_baseline_target":  self.BASELINE_FLOWS,
         }
 
-    # ── baseline statistics for dashboard context ─────────────────────────────
+    # baseline statistics for dashboard context
 
     def baseline_stats(self) -> dict[str, dict[str, float]]:
         """Median and IQR per feature from the fitted RobustScaler."""
@@ -772,7 +772,7 @@ class MultiWindowOIF:
         }
 
 
-# ── Module-level detector instances ───────────────────────────────────────────
+# module-level detector instances
 #
 # One per protocol. On startup, try to load a previously saved model; fall back
 # to a fresh instance if absent, corrupt, wrong feature set, or wrong version.
@@ -798,9 +798,9 @@ def _load_or_create(
                          "complete" if detector.is_ready else "incomplete")
                 return detector
             log.warning("[%s OIF] Incompatible saved model (feature set or version mismatch)"
-                        " — starting fresh", protocol)
+                        " - starting fresh", protocol)
         except Exception:
-            log.warning("[%s OIF] Could not load %s — starting fresh",
+            log.warning("[%s OIF] Could not load %s - starting fresh",
                         protocol, path, exc_info=True)
 
     return MultiWindowOIF(feature_names, protocol=protocol,
@@ -825,7 +825,7 @@ def reset_detector(protocol: str) -> None:
             TCP_IF_FEATURE_NAMES, protocol="TCP",
             baseline_flows=cfg.baseline_tcp, save_path=pkl,
         )
-        log.info("[TCP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_tcp)
+        log.info("[TCP OIF] Baseline reset - re-baselining on %d flows", cfg.baseline_tcp)
 
     if protocol in ("UDP", "all"):
         pkl = _MODEL_DIR / "udp_oif.pkl"
@@ -835,7 +835,7 @@ def reset_detector(protocol: str) -> None:
             UDP_IF_FEATURE_NAMES, protocol="UDP",
             baseline_flows=cfg.baseline_udp, save_path=pkl,
         )
-        log.info("[UDP OIF] Baseline reset — re-baselining on %d flows", cfg.baseline_udp)
+        log.info("[UDP OIF] Baseline reset - re-baselining on %d flows", cfg.baseline_udp)
 
 
 def feedback_reinforce(flow_id: str, dismiss: bool) -> bool:
@@ -845,7 +845,7 @@ def feedback_reinforce(flow_id: str, dismiss: bool) -> bool:
     array in the correct feature order, and calls reinforce_normal() to shift
     the online trees toward treating similar flows as normal.
 
-    Only acts when dismiss=True — label corrections without dismissal do not
+    Only acts when dismiss=True; label corrections without dismissal do not
     change the anomaly boundary (they're stored as ground-truth labels only).
 
     Returns True if the update was applied, False otherwise.
@@ -853,7 +853,7 @@ def feedback_reinforce(flow_id: str, dismiss: bool) -> bool:
     if not dismiss:
         return False
 
-    import storage as _storage  # late import — avoids circular dep at module load
+    import storage as _storage  # late import - avoids circular dep at module load
 
     result = _storage.get_flow_features(flow_id)
     if result is None:
@@ -898,7 +898,7 @@ def process_flow(flow: dict) -> dict | None:
         detector = udp_detector
         features = UDP_IF_FEATURES
     else:
-        log.debug("Unsupported protocol %d — skipping", proto)
+        log.debug("Unsupported protocol %d - skipping", proto)
         return None
 
     if cfg.filter_gateway:
@@ -938,7 +938,7 @@ def process_flow(flow: dict) -> dict | None:
     else:
         severity = "INFO"
 
-    # All feature values keyed by name — included in alert dict so the LLM
+    # all feature values keyed by name, included in alert dict for LLM context
     # can receive the full feature vector as optional context.
     feature_values = {name: float(fn(flow)) for name, fn in features}
 

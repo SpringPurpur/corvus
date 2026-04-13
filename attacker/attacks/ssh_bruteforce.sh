@@ -1,12 +1,12 @@
 #!/bin/sh
-# ssh_bruteforce.sh — SSH brute-force against all victim nodes.
+# ssh_bruteforce.sh - SSH brute-force against all victim nodes.
 # Generates SSH-Patator-style flows: many short TCP connections, psh_flag_ratio > 0.
 # SSH is on port 22 in victim_node (standard sshd).
-# All 5 nodes targeted in parallel — realistic credential-harvesting campaign.
+# All 5 nodes targeted in parallel - realistic credential-harvesting campaign.
 #
 # timeout 180: rockyou.txt has ~14M entries; full exhaustion against real sshd
 # (which does a complete handshake per attempt) would take hours. 180s generates
-# ~300-600 attempts per node — more than enough for anomaly detection signal.
+# ~300-600 attempts per node - more than enough for anomaly detection signal.
 PORT=${1:-22}
 WORDLIST=${2:-/usr/share/wordlists/rockyou.txt}
 USER=${3:-testuser}

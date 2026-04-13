@@ -1,5 +1,5 @@
 #!/bin/sh
-# slow_read.sh — Slow Read HTTP DoS via slowhttptest.
+# slow_read.sh - Slow Read HTTP DoS via slowhttptest.
 #
 # Advertises a tiny TCP receive window so nginx cannot flush its send buffer.
 # The server holds each connection open for the full duration while the
@@ -10,7 +10,7 @@
 # (attacker sends the request then goes silent).
 #
 # Distinct from Slowloris (attacker sends headers slowly) and Slow POST
-# (attacker sends body slowly) — here the server is the slow party.
+# (attacker sends body slowly); here the server is the slow party.
 CONNS=${1:-200}
 DURATION=${2:-120}
 

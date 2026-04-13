@@ -8,7 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 enable_language(ASM_NASM)
 set(CMAKE_ASM_NASM_FLAGS "-f elf64")
 
-# Strict warnings and AVX2 — C only; NASM does not accept GCC flags
+# Strict warnings and AVX2 (C only; NASM does not accept GCC flags)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wall>)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wextra>)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wpedantic>)
@@ -18,7 +18,7 @@ add_compile_options($<$<COMPILE_LANGUAGE:C>:-mavx2>)
 # libpcap
 find_library(PCAP_LIB pcap REQUIRED)
 
-# ── Main capture engine ────────────────────────────────────────────────────────
+# Main capture engine
 add_executable(capture_engine
     src/main.c
     src/packet_parser.c
@@ -30,7 +30,7 @@ add_executable(capture_engine
 target_include_directories(capture_engine PRIVATE src)
 target_link_libraries(capture_engine PRIVATE ${PCAP_LIB} m)
 
-# ── Unit test binary (no network, no pcap) ────────────────────────────────────
+# Unit test binary (no network, no pcap)
 add_executable(test_features
     tests/test_features.c
     asm/features_avx2.asm
@@ -38,7 +38,7 @@ add_executable(test_features
 target_include_directories(test_features PRIVATE src)
 target_link_libraries(test_features PRIVATE m)
 
-# ── IPC debug tool ─────────────────────────────────────────────────────────────
+# IPC debug tool
 add_executable(inspect_ipc
     tests/inspect_ipc.c
 )

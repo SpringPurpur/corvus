@@ -1,5 +1,5 @@
 #!/bin/sh
-# udp_flood.sh — UDP flood against all victim nodes.
+# udp_flood.sh - UDP flood against all victim nodes.
 # Generates DDoS-LOIC-UDP-style flows: high fwd_pkts_per_sec, low flow_iat_mean.
 # -k keeps source port fixed so packets per target group into one flow.
 # All 5 nodes targeted in parallel.

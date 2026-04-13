@@ -1,5 +1,5 @@
 #!/bin/sh
-# start.sh — launch nginx and sshd, then hand off to the traffic generator.
+# start.sh - launch nginx and sshd, then hand off to the traffic generator.
 # traffic.sh becomes PID 1 (via exec) so Docker tracks its lifetime.
 
 # nginx reads /etc/nginx/sites-available/default via sites-enabled symlink

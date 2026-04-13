@@ -125,9 +125,9 @@ def wait_for_queue_empty(api: str, timeout_s: int = 60, label: str = "pre-attack
     """Block until the inference queue depth is zero (or timeout).
 
     Used twice:
-      1. After baseline completes but BEFORE attack starts — ensures no overflow
+      1. After baseline completes but BEFORE attack starts - ensures no overflow
          baseline flows are in the queue when the attack begins.
-      2. After attack + monitor_s — ensures all attack flows are processed before
+      2. After attack + monitor_s - ensures all attack flows are processed before
          we query the DB for metrics.
     """
     deadline = time.time() + timeout_s
@@ -141,8 +141,8 @@ def wait_for_queue_empty(api: str, timeout_s: int = 60, label: str = "pre-attack
             time.sleep(1)
             continue
         if depth is None:
-            # Old inference without queue_depth — skip drain wait
-            print("[queue] queue_depth not available in /stats — skipping drain wait")
+            # Old inference without queue_depth - skip drain wait
+            print("[queue] queue_depth not available in /stats - skipping drain wait")
             return
         if depth != prev_depth:
             print(f"  [queue] depth={depth}")
@@ -151,12 +151,12 @@ def wait_for_queue_empty(api: str, timeout_s: int = 60, label: str = "pre-attack
             print(f"[queue] Queue empty ({label}).\n")
             return
         time.sleep(1)
-    print(f"[queue] WARNING: queue did not drain within {timeout_s}s — proceeding anyway.")
+    print(f"[queue] WARNING: queue did not drain within {timeout_s}s - proceeding anyway.")
 
 
 def open_phase(api: str, run_id: str, scenario: str, phase: str,
                t_start: float, attacker_ip: str | None = None) -> int:
-    """POST /phases — record phase start, return phase_id."""
+    """POST /phases - record phase start, return phase_id."""
     try:
         body = {"run_id": run_id, "scenario": scenario, "phase": phase,
                 "t_start": t_start, "attacker_ip": attacker_ip}
@@ -168,7 +168,7 @@ def open_phase(api: str, run_id: str, scenario: str, phase: str,
 
 
 def close_phase(api: str, phase_id: int, t_end: float) -> None:
-    """PATCH /phases/{id} — set t_end."""
+    """PATCH /phases/{id} - set t_end."""
     if phase_id < 0:
         return
     try:
@@ -207,7 +207,7 @@ def wait_for_baseline(api: str, timeout_s: int, needs_udp: bool = False) -> dict
         ready = tcp_ready and (udp_ready if needs_udp else True)
         if ready:
             if not needs_udp and not udp_ready:
-                print(f"[baseline] TCP ready — UDP still filling in background "
+                print(f"[baseline] TCP ready - UDP still filling in background "
                       f"({udp_p}/{udp_tgt}, not required for this scenario).\n")
             else:
                 print("[baseline] Detectors ready.\n")
@@ -284,7 +284,7 @@ def compute_metrics(
     benign_flows  = [f for f in all_flows if not _involves_attacker(f, attacker_ip)]
     post_flows    = [f for f in all_flows if f["ts"] > t_attack_end]
 
-    # TTD — first CRITICAL alert from attacker. Floor negative TTD to 0 so
+    # TTD - first CRITICAL alert from attacker. Floor negative TTD to 0 so
     # attacks whose first packet arrives fractionally before the start stamp
     # (clock drift) don't produce a confusing negative time-to-detect.
     ttd_s         = None
@@ -564,7 +564,7 @@ def main() -> None:
     close_phase(args.api, baseline_phase_id, t_end=time.time())
 
     # After baseline is ready, atomically clear the inference queue before the
-    # attack starts. This is faster and more reliable than polling for drain —
+    # attack starts. This is faster and more reliable than polling for drain;
     # DELETE /queue discards all pending flows instantly so the attack window
     # starts with a clean slate. Any baseline overflow flows that were in the
     # queue are intentionally discarded here; only attack-window flows matter.
@@ -575,7 +575,7 @@ def main() -> None:
         if total_dropped:
             print(f"[queue] Cleared inference queue: {total_dropped} pre-attack flows discarded.")
         else:
-            print("[queue] Inference queue already empty — clean start.")
+            print("[queue] Inference queue already empty - clean start.")
     except Exception as e:
         print(f"[queue] WARNING: could not clear queue: {e}")
 
@@ -618,7 +618,7 @@ def main() -> None:
     #   - SYN flood (hping3 --syn -k): single flow with 120s idle timeout.
     #     monitor_s=150 ensures the flow is finalized and in the IPC ring before
     #     we drain the queue.
-    # After the wait, poll queue_depth until zero — all flows scored and in DB.
+    # After the wait, poll queue_depth until zero - all flows scored and in DB.
     recovery_phase_id = open_phase(
         args.api, run_id, scenario["name"], "recovery",
         t_start=t_attack_end, attacker_ip=None,
@@ -666,7 +666,7 @@ def main() -> None:
                               or f.get("dst_port") == attacker_port]
                 print(f"[report]   With port={attacker_port} filter: {len(port_match)}")
         else:
-            # No attacker flows in window — check unconstrained DB for attacker flows
+            # No attacker flows in window - check unconstrained DB for attacker flows
             attacker_all = [f for f in db_all if _involves_attacker(f, attacker_ip)]
             if attacker_all:
                 ts_vals = [f["ts"] for f in attacker_all]
@@ -681,7 +681,7 @@ def main() -> None:
             else:
                 print(f"[report] WARNING: attacker IP {attacker_ip} not found in DB at all "
                       f"(DB has {len(db_all)} flows total). "
-                      f"Flow may still be in C engine ring — check monitor_s.")
+                      f"Flow may still be in C engine ring - check monitor_s.")
     except Exception as e:
         print(f"[report] WARNING: could not query flows: {e}")
         window_flows = []
@@ -706,7 +706,7 @@ def main() -> None:
     stem     = scenario_path.stem
     out_path = results_dir / f"{stem}_{ts_str}.json"
 
-    # Enrich: top-5 attack flows by score (key fields only — not the full dict)
+    # Enrich: top-5 attack flows by score (key fields only, not the full dict)
     def _score(f: dict) -> float:
         return f.get("score_comp") or (f.get("scores") or {}).get("composite") or 0.0
 
@@ -732,7 +732,7 @@ def main() -> None:
     ]
 
     # Latency percentiles from flows that have timing data.
-    # t_enqueue_ns is set by ipc_writer_enqueue() — the correct IPC start time.
+    # t_enqueue_ns is set by ipc_writer_enqueue() - the correct IPC start time.
     # Falls back to flow_ts_ns (legacy) if t_enqueue_ns is absent or zero.
     def _has(*keys):
         return lambda f: (f.get("timing") and
@@ -789,11 +789,11 @@ def main() -> None:
         "top_attack_flows":  top_flows_slim,
         "latency_ms": {
             # ipc_decode: t_enqueue_ns (C ring) → t_socket_ns (Python decode).
-            # True wire+decode latency — microseconds, not flow lifetime.
+            # True wire+decode latency - microseconds, not flow lifetime.
             "ipc_decode":  _pcts(ipc_vals),
-            # queue_wait:  t_socket_ns → t_dequeue_ns — pure asyncio queue depth.
+            # queue_wait:  t_socket_ns -> t_dequeue_ns - pure asyncio queue depth.
             "queue_wait":  _pcts(queue_vals),
-            # oif_score:   t_dequeue_ns → t_scored_ns — Isolation Forest scoring.
+            # oif_score:   t_dequeue_ns -> t_scored_ns - Isolation Forest scoring.
             "oif_score":   _pcts(oif_vals),
         },
         "stats_before":      stats_before,

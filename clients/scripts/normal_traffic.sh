@@ -1,5 +1,5 @@
 #!/bin/bash
-# normal_traffic.sh — continuous realistic benign traffic generator.
+# normal_traffic.sh - continuous realistic benign traffic generator.
 #
 # Runs indefinitely as the container's main process. CLIENT_ID (a|b)
 # shifts timing and emphasis so the two clients produce distinct flow
@@ -24,7 +24,7 @@ NTP=172.20.0.51
 log() { echo "[$(date '+%H:%M:%S')] [client-${CLIENT_ID:-?}] $*"; }
 
 http_small() {
-    # Connection: close forces one TCP flow per request — critical for baseline diversity.
+    # Connection: close forces one TCP flow per request - critical for baseline diversity.
     # Without it curl reuses the connection and multiple requests become one flow.
     curl -s -o /dev/null -H "Connection: close" "http://$WEB/" 2>/dev/null
 }
@@ -39,7 +39,7 @@ http_large() {
 
 ssh_session() {
     # Legitimate interactive-style SSH: connect, run a command, disconnect.
-    # Produces: low fwd_pkts_per_sec, balanced asymmetry, long flow_iat_mean.
+    # Produces low fwd_pkts_per_sec, balanced asymmetry, long flow_iat_mean.
     sshpass -p "$SSH_PASS" ssh \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
@@ -50,8 +50,8 @@ ssh_session() {
 }
 
 dns_query() {
-    # Alternates between internal names (cache hits — small response) and
-    # external names forwarded to 8.8.8.8 (cache misses — larger response).
+    # Alternates between internal names (cache hits, small response) and
+    # external names forwarded to 8.8.8.8 (cache misses, larger response).
     # Produces varied pkt_len_mean and down/up ratio across UDP flows.
     local names=("victim-web.ids" "victim-ssh.ids" "dns.ids"
                  "google.com" "github.com" "cloudflare.com")
@@ -60,7 +60,7 @@ dns_query() {
 }
 
 ntp_sync() {
-    # NTP query — tiny fixed-size UDP exchange (48 bytes each way).
+    # NTP query - fixed-size UDP exchange (48 bytes each way).
     # Adds a distinct short-duration, symmetric UDP flow type to the baseline.
     ntpdate -q "$NTP" >/dev/null 2>&1 || \
         busybox ntpd -q -p "$NTP" >/dev/null 2>&1 || true
@@ -77,7 +77,7 @@ if [[ "${CLIENT_ID}" == "b" ]]; then
     sleep 7
 fi
 
-log "Starting — normal traffic loop"
+log "Starting - normal traffic loop"
 i=0
 while true; do
     i=$(( i + 1 ))
@@ -85,7 +85,7 @@ while true; do
     http_small
     rand_sleep 1 3
 
-    # Every 3 cycles: DNS query — keeps UDP baseline filling steadily
+    # Every 3 cycles: DNS query - keeps UDP baseline filling steadily
     if (( i % 3 == 0 )); then
         dns_query
     fi
@@ -96,7 +96,7 @@ while true; do
         rand_sleep 2 4
     fi
 
-    # Every 8 cycles: NTP sync — short symmetric UDP, different from DNS
+    # Every 8 cycles: NTP sync - short symmetric UDP, different from DNS
     if (( i % 8 == 0 )); then
         ntp_sync
     fi

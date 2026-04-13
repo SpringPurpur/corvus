@@ -1,9 +1,9 @@
 #!/bin/sh
-# http_flood.sh — HTTP GET flood using Apache Benchmark against all victim nodes.
+# http_flood.sh - HTTP GET flood using Apache Benchmark against all victim nodes.
 # Unlike the SYN flood, this generates complete TCP flows with real responses:
 # fwd_act_data_pkts > 0, psh_flag_cnt high, bwd_pkt_len_std > 0.
 # Signature: high volume + full handshake + application-layer data.
-# All 5 nodes targeted in parallel — realistic campaign flooding entire subnet.
+# All 5 nodes targeted in parallel - realistic campaign flooding entire subnet.
 COUNT=${1:-10000}
 CONC=${2:-100}
 

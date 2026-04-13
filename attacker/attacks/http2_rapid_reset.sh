@@ -1,9 +1,9 @@
 #!/bin/sh
-# http2_rapid_reset.sh — CVE-2023-44487 HTTP/2 Rapid Reset attack.
+# http2_rapid_reset.sh - CVE-2023-44487 HTTP/2 Rapid Reset attack.
 #
 # Delegates to http2_rapid_reset.py which uses the h2 library to open
 # TLS/HTTP2 connections and send HEADERS + RST_STREAM bursts.
-# All 5 nodes have TLS + HTTP/2 on port 443 — target all in parallel.
+# All 5 nodes have TLS + HTTP/2 on port 443 - target all in parallel.
 PORT=${1:-443}
 CONNS=${2:-50}
 STREAMS=${3:-100}

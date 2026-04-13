@@ -1,8 +1,8 @@
 #!/bin/sh
-# syn_flood.sh — TCP SYN flood against all victim nodes.
+# syn_flood.sh - TCP SYN flood against all victim nodes.
 # Generates high syn_flag_ratio flows with short duration and zero response.
 # -k keeps the same source port so all packets per target belong to one flow.
-# All 5 nodes targeted in parallel — realistic subnet-wide DoS campaign.
+# All 5 nodes targeted in parallel - realistic subnet-wide DoS campaign.
 PORT=${1:-80}
 COUNT=${2:-10000}
 

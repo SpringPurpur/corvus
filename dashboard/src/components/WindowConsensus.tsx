@@ -1,4 +1,4 @@
-// WindowConsensus.tsx — per-window score heatmap + ensemble divergence sparkline.
+// WindowConsensus.tsx - per-window score heatmap + ensemble divergence sparkline.
 //
 // Shows the three OIF window scores (fast=256, medium=1024, slow=4096) for the
 // most recent alert as colour-coded cells, and plots the spread between the
@@ -11,7 +11,7 @@
 //
 // Interpreting divergence:
 //   Low divergence  → all windows agree (either all normal or all anomalous)
-//   High divergence → windows disagree — detector is in a state of rapid
+//   High divergence -> windows disagree - detector is in a state of rapid
 //                     adaptation, likely witnessing a novel traffic transition
 
 import { useMemo } from 'react'
@@ -61,7 +61,7 @@ export function WindowConsensus({ alerts, thHigh, thCrit }: Props) {
   if (!current) {
     return (
       <div className="text-[10px] text-muted-foreground italic">
-        No alerts yet — waiting for baseline to complete
+        No alerts yet - waiting for baseline to complete
       </div>
     )
   }
@@ -83,7 +83,7 @@ export function WindowConsensus({ alerts, thHigh, thCrit }: Props) {
 
   return (
     <div className="space-y-3">
-      {/* ── 3-cell heatmap ─────────────────────────────────────────────────── */}
+      {/* 3-cell heatmap */}
       <div className="flex gap-1.5">
         {WINDOWS.map(({ key, label, title }) => {
           const score = current[key]
@@ -113,7 +113,7 @@ export function WindowConsensus({ alerts, thHigh, thCrit }: Props) {
         })}
       </div>
 
-      {/* ── Divergence sparkline ────────────────────────────────────────────── */}
+      {/* Divergence sparkline */}
       <div>
         <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
           <span>Window divergence (max − min)</span>

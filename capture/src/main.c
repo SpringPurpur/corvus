@@ -1,14 +1,14 @@
 /*
- * main.c — libpcap capture loop, pcap callback, periodic idle-flow expiry.
+ * main.c - libpcap capture loop, pcap callback, periodic idle-flow expiry.
  *
  * One thread: the libpcap dispatch loop. All state (flow table, IPC writer)
  * is owned by this thread. The IPC writer has its own sender thread but its
- * ring buffer is accessed without locks — see ipc_writer.c for details.
+ * ring buffer is accessed without locks; see ipc_writer.c for details.
  *
  * Flow completion rules (must match CICFlowMeter exactly):
- *   FIN: either direction — flow completes on FIN packet (included in flow)
- *   RST: either direction — flow completes immediately
- *   Timeout: no packets for FLOW_IDLE_TIMEOUT_NS (120s) — expiry scan runs
+ *   FIN: either direction - flow completes on FIN packet (included in flow)
+ *   RST: either direction - flow completes immediately
+ *   Timeout: no packets for FLOW_IDLE_TIMEOUT_NS (120s) - expiry scan runs
  *            every second via pcap_dispatch() return or pcap alarm approach
  */
 
@@ -25,13 +25,13 @@
 #include "flow_features.h"
 #include "ipc_writer.h"
 
-/* ── Globals ─────────────────────────────────────────────────────────────── */
+/* --- globals --- */
 
 static flow_table_t  g_table;
 static pcap_t       *g_pcap = NULL;
 static volatile int  g_stop  = 0;
 
-/* ── Signal handling ──────────────────────────────────────────────────────── */
+/* --- signal handling --- */
 
 static void sig_handler(int sig)
 {
@@ -41,7 +41,7 @@ static void sig_handler(int sig)
         pcap_breakloop(g_pcap);
 }
 
-/* ── Helpers ──────────────────────────────────────────────────────────────── */
+/* --- helpers --- */
 
 static uint64_t clock_ns(void)
 {
@@ -64,7 +64,7 @@ static int is_forward(const flow_record_t *flow, const parsed_pkt_t *pkt)
     return (flow->fwd_is_lower_ip == (uint8_t)pkt_from_lower);
 }
 
-/* ── Expiry callback ──────────────────────────────────────────────────────── */
+/* --- expiry callback --- */
 
 static void expire_flow(flow_record_t *flow, void *ctx)
 {
@@ -74,14 +74,14 @@ static void expire_flow(flow_record_t *flow, void *ctx)
     flow_table_remove(&g_table, flow);
 }
 
-/* ── pcap callback ────────────────────────────────────────────────────────── */
+/* --- pcap callback --- */
 
 static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
                              const u_char *data)
 {
     (void)user;
 
-    // Convert pcap timeval to nanoseconds — pcap gives microsecond resolution,
+    // Convert pcap timeval to nanoseconds; pcap gives microsecond resolution,
     // multiply tv_usec by 1000 to get nanoseconds
     uint64_t ts_ns = (uint64_t)hdr->ts.tv_sec * 1000000000ULL
                    + (uint64_t)hdr->ts.tv_usec * 1000ULL;
@@ -93,7 +93,7 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
     int is_new = 0;
     flow_record_t *flow = flow_table_get_or_create(&g_table, &pkt, &is_new);
     if (!flow)
-        return;   // table full — packet dropped, counter incremented in table
+        return;   // table full - packet dropped, counter incremented in table
 
     if (is_new) {
         flow->first_pkt_ns        = ts_ns;
@@ -104,9 +104,9 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
     int fwd = is_forward(flow, &pkt);
     features_update(flow, &pkt, fwd);
 
-    // ── Buffer-fill completion ───────────────────────────────────────────
+    // buffer-fill completion:
     // When the packet length buffer reaches capacity (512 entries) the flow
-    // has enough data for accurate AVX2 statistics — emit immediately.
+    // has enough data for accurate AVX2 stats - emit immediately.
     // This catches high-rate floods that would otherwise wait for a timeout.
     // The 512-packet sample is representative: floods are uniform so std≈0
     // is a correct feature value, not an artefact of truncation.
@@ -117,7 +117,7 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
         return;
     }
 
-    // ── Flow completion detection ────────────────────────────────────────
+    // flow completion detection
     // Check for RST first (immediate) then FIN (include the FIN packet)
     if (pkt.protocol == 6) {
         uint8_t flags = pkt.tcp_flags;
@@ -140,7 +140,7 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
     }
 }
 
-/* ── Usage ────────────────────────────────────────────────────────────────── */
+/* --- usage --- */
 
 static void usage(const char *prog)
 {
@@ -150,7 +150,7 @@ static void usage(const char *prog)
     exit(1);
 }
 
-/* ── Main ─────────────────────────────────────────────────────────────────── */
+/* --- main --- */
 
 int main(int argc, char *argv[])
 {
@@ -171,11 +171,11 @@ int main(int argc, char *argv[])
     signal(SIGINT,  sig_handler);
     signal(SIGTERM, sig_handler);
 
-    // ── Initialise subsystems ────────────────────────────────────────────
+    // initialise subsystems
     flow_table_init(&g_table);
     ipc_writer_init();
 
-    // ── Open pcap ───────────────────────────────────────────────────────
+    // open pcap
     char errbuf[PCAP_ERRBUF_SIZE];
     g_pcap = pcap_open_live(iface, 65535, 1 /*promisc*/, 1000 /*ms timeout*/,
                              errbuf);
@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
 
     // Base filter: only IPv4 TCP and UDP. If the operator supplied an extra
     // BPF expression, AND it in so packets matching neither are dropped in
-    // kernel before reaching userspace — reducing CPU load on noisy links.
+    // kernel before reaching userspace, reducing CPU load on noisy links.
     char filter_expr[4096];
     if (extra_filter && *extra_filter) {
         snprintf(filter_expr, sizeof(filter_expr),
@@ -209,7 +209,7 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "[capture] capturing on %s (press Ctrl+C to stop)\n", iface);
 
-    // ── Capture loop ─────────────────────────────────────────────────────
+    // capture loop
     // Use pcap_dispatch() in a loop rather than pcap_loop() so we can run
     // the idle-expiry scan every second between dispatches
     uint64_t last_expire_ns = clock_ns();
@@ -229,7 +229,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // ── Shutdown: drain remaining flows ──────────────────────────────────
+    // shutdown: drain remaining flows
     fprintf(stderr, "[capture] shutting down, flushing active flows...\n");
     uint64_t now = clock_ns();
     // Finalise all remaining active flows regardless of idle time

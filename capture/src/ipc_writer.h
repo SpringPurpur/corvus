@@ -1,5 +1,5 @@
 /*
- * ipc_writer.h — Unix domain socket client for sending flow records to Python.
+ * ipc_writer.h - Unix domain socket client for sending flow records to Python.
  *
  * Wire format: [uint32_t payload_len = sizeof(flow_record_t)][flow_record_t bytes]
  *
@@ -11,7 +11,7 @@
  * entries. If the ring is full, the oldest flow is silently dropped. This
  * prevents the packet callback from blocking on I/O.
  *
- * The writer runs its own reconnect loop — if the socket is unavailable (Python
+ * The writer runs its own reconnect loop; if the socket is unavailable (Python
  * not started yet), it retries every 100ms in a background thread. The packet
  * callback itself never blocks.
  */
@@ -19,7 +19,7 @@
 #include "flow_types.h"
 
 #define IPC_SOCKET_PATH   "/tmp/ids_ipc/flows.sock"
-// 8192 slots × 6336 bytes = ~50 MB — large enough to absorb bursts during
+// 8192 slots x 6336 bytes = ~50 MB; large enough to absorb bursts during
 // flood attacks without dropping flows before the inference engine drains it.
 // Must be a power of 2 (used as bitmask index).
 #define IPC_RING_CAPACITY 8192
@@ -33,7 +33,7 @@ void ipc_writer_init(void);
 /*
  * Enqueue a completed flow record for sending.
  *
- * Called from the packet callback thread — must be non-blocking.
+ * Called from the packet callback thread - must be non-blocking.
  * Copies the flow into the ring buffer. If the ring is full, the oldest
  * entry is overwritten.
  */

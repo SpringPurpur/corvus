@@ -1,8 +1,8 @@
-// NetworkTopology.tsx — Force-directed graph of flow source → destination IPs.
+// NetworkTopology.tsx - Force-directed graph of flow source -> destination IPs.
 //
 // Layout: simplified Fruchterman–Reingold (repulsion + spring forces,
 // 150 iterations, temperature cooling). Runs synchronously on graph structure
-// change — typically < 5 ms for lab-scale node counts (≤ 30 IPs).
+// change - typically < 5 ms for lab-scale node counts (<= 30 IPs).
 //
 // Nodes  = unique IP addresses (src or dst), radius ∝ sqrt(flowCount).
 // Edges  = unique src→dst pairs collapsed across all alerts.
@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Alert, Severity } from '../types'
 
-// ── Colour map ────────────────────────────────────────────────────────────────
+// colour map
 
 const SEV_COLOUR: Record<Severity, string> = {
   INFO:     'var(--color-score-normal)',
@@ -20,7 +20,7 @@ const SEV_COLOUR: Record<Severity, string> = {
   CRITICAL: 'var(--color-score-crit)',
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// types
 
 interface TopoNode {
   id:        string
@@ -36,7 +36,7 @@ interface TopoEdge {
   peakSev:   Severity
 }
 
-// ── Layout helpers ────────────────────────────────────────────────────────────
+// layout helpers
 
 function nodeRadius(flowCount: number): number {
   return Math.max(7, Math.min(22, 5 + Math.sqrt(flowCount) * 1.8))
@@ -117,10 +117,10 @@ function layoutGraph(
   return pos
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// component
 
 interface Props {
-  alerts: Alert[]   // all alerts — TCP + UDP combined
+  alerts: Alert[]   // all alerts - TCP + UDP combined
 }
 
 export function NetworkTopology({ alerts }: Props) {
@@ -180,7 +180,7 @@ export function NetworkTopology({ alerts }: Props) {
     return { nodes: [...nodeMap.values()], edges: [...edgeMap.values()] }
   }, [filtered])
 
-  // Stable fingerprint of graph structure — only re-layout when topology changes,
+  // Stable fingerprint of graph structure - only re-layout when topology changes,
   // not when flow counts change on existing edges.
   const graphKey = useMemo(
     () =>

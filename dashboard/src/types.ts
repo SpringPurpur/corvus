@@ -52,7 +52,7 @@ export interface Alert {
   verdict:     Verdict
   scores:      OifScores
   attribution: AttributionEntry[]
-  features?:   Record<string, number>  // all OIF feature values — for full-context LLM explain
+  features?:   Record<string, number>  // all OIF feature values - for full-context LLM explain
   timing?:     PipelineTiming
 }
 
@@ -69,7 +69,7 @@ export interface OifMetrics {
   n_seen:         number
   n_trained:      number
   n_rejected:     number
-  rejection_rate: number   // n_rejected / n_seen — rises during active attacks
+  rejection_rate: number   // n_rejected / n_seen - rises during active attacks
   score_p50:      number   // median composite score
   score_p95:      number   // 95th-percentile composite score
   score_recent:   number[] // last ≤20 scores for sparkline

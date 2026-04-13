@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-launch.py — start the Corvus IDS stack and open the dashboard.
+launch.py - start the Corvus IDS stack and open the dashboard.
 
 Build order:
   1. npm install + npm run build  (host, skipped if dist/ is up to date)
@@ -10,7 +10,7 @@ Build order:
 
 Flags:
   --build    Force-rebuild Docker images before starting (use after code changes).
-             Without this flag, existing images are reused — startup is much faster.
+             Without this flag, existing images are reused - startup is much faster.
   --testbed  Also start the evaluation testbed overlay (victim nodes, attacker,
              DNS, NTP). Equivalent to adding -f docker-compose.testbed.yml.
 """
@@ -23,7 +23,7 @@ import sys
 import time
 import urllib.request
 
-# On Windows, npm/npx are batch scripts (.cmd) — not directly executable
+# On Windows, npm/npx are batch scripts (.cmd) - not directly executable
 NPM = "npm.cmd" if platform.system() == "Windows" else "npm"
 
 ROOT            = os.path.dirname(__file__)
@@ -62,11 +62,11 @@ def build_dashboard() -> None:
         )
         pkg_mtime = os.path.getmtime(os.path.join(DASHBOARD, "package.json"))
         if not stale and pkg_mtime < dist_mtime:
-            print("[launch] Dashboard dist/ is up to date — skipping build.")
+            print("[launch] Dashboard dist/ is up to date - skipping build.")
             return
 
     print("[launch] Building dashboard...")
-    # Check for vite binary, not just the directory — empty node_modules dir
+    # Check for vite binary, not just the directory; empty node_modules dir
     # is created by git and would falsely skip install
     vite_bin = os.path.join(DASHBOARD, "node_modules", ".bin", "vite")
     vite_cmd = vite_bin + ".cmd" if platform.system() == "Windows" else vite_bin
@@ -132,6 +132,6 @@ if __name__ == "__main__":
         print("[launch] Check logs with:  docker logs ids_inference")
         sys.exit(1)
 
-    print(f"[launch] Stack ready — opening {URL}")
+    print(f"[launch] Stack ready - opening {URL}")
     open_dashboard(URL)
     print("[launch] Running. Press Ctrl+C or run stop.py to shut down.")

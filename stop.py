@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""stop.py — tear down the Corvus IDS stack.
+"""stop.py - tear down the Corvus IDS stack.
 
 Flags:
   --testbed  Also tear down the evaluation testbed overlay (victim nodes,
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # Remove dangling images and build cache left behind by docker compose.
     # This prevents the WSL2 virtual disk (ext4.vhdx) from growing unboundedly
     # across repeated launch/stop cycles. Named volumes and bind mounts are
-    # not touched — models and SQLite data are preserved.
+    # not touched; models and SQLite data are preserved.
     subprocess.run(
         ["docker", "--context", "default", "system", "prune", "-f"],
         check=False,   # non-fatal if prune finds nothing to remove

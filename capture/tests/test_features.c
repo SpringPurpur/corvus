@@ -1,5 +1,5 @@
 /*
- * test_features.c — unit tests for AVX2 feature routines.
+ * test_features.c - unit tests for AVX2 feature routines.
  *
  * No network access required. Tests AVX2 outputs against scalar reference
  * implementations. All tests must print PASS before the engine is used.
@@ -14,7 +14,7 @@
 #include <math.h>
 #include <string.h>
 
-/* ── Declarations of AVX2 functions under test ───────────────────────────── */
+/* Declarations of AVX2 functions under test */
 
 extern void compute_pkt_len_stats_avx2(uint16_t *buf, uint32_t count,
                                         float *out_mean, float *out_std);
@@ -23,7 +23,7 @@ extern void count_tcp_flags_avx2(uint8_t *flags, uint32_t count,
                                   uint32_t *fin, uint32_t *syn, uint32_t *rst,
                                   uint32_t *psh, uint32_t *ack, uint32_t *urg);
 
-/* ── Scalar reference implementations ───────────────────────────────────── */
+/* Scalar reference implementations */
 
 static void scalar_pkt_len_stats(const uint16_t *buf, uint32_t count,
                                   float *out_mean, float *out_std)
@@ -57,7 +57,7 @@ static void scalar_count_flags(const uint8_t *flags, uint32_t count,
     }
 }
 
-/* ── Test helpers ─────────────────────────────────────────────────────────── */
+/* Test helpers */
 
 static int tests_run    = 0;
 static int tests_passed = 0;
@@ -103,7 +103,7 @@ static void check_flags(const char *name, uint32_t count,
     }
 }
 
-/* ── Test cases ───────────────────────────────────────────────────────────── */
+/* Test cases */
 
 static void test_stats_uniform(void)
 {
@@ -137,7 +137,7 @@ static void test_stats_exact_16(void)
 
 static void test_stats_with_tail(void)
 {
-    // 16 + 7 = 23 — exercises scalar tail
+    // 16 + 7 = 23, exercises scalar tail
     uint16_t buf[23];
     for (int i = 0; i < 23; i++) buf[i] = (uint16_t)(1 + (i * 37) % 1400);
     float am, as_, rm, rs;
@@ -148,7 +148,7 @@ static void test_stats_with_tail(void)
 
 static void test_stats_large(void)
 {
-    // 512 elements — max buffer size used in production
+    // 512 elements (max buffer size used in production)
     uint16_t buf[512];
     for (int i = 0; i < 512; i++)
         buf[i] = (uint16_t)(40 + (i * 53 + 7) % 1460);
@@ -243,7 +243,7 @@ static void test_flags_mixed(void)
 
 static void test_flags_tail_only(void)
 {
-    // 5 elements — entirely in scalar tail (< 32 per AVX2 loop)
+    // 5 elements, entirely in scalar tail (< 32 per AVX2 loop)
     uint8_t flags[5] = {0x02, 0x12, 0x10, 0x04, 0x01};
     uint32_t af, as_, ar, ap, aa, au;
     uint32_t rf, rs, rr, rp, ra, ru;
@@ -254,7 +254,7 @@ static void test_flags_tail_only(void)
                 rf, rs, rr, rp, ra, ru);
 }
 
-/* ── Main ─────────────────────────────────────────────────────────────────── */
+/* Main */
 
 int main(void)
 {

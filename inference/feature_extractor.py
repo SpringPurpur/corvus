@@ -1,13 +1,13 @@
-# feature_extractor.py — maps flow_dict fields to model feature vectors.
+# feature_extractor.py - maps flow_dict fields to model feature vectors.
 #
-# Feature names must match exactly what the models were trained on — a name
+# Feature names must match exactly what the models were trained on; a name
 # mismatch silently produces wrong predictions, not an error. The order of
 # entries in TCP_FEATURES / UDP_FEATURES defines the column order of the
 # numpy array passed to predict_proba.
 
 import numpy as np
 
-# ── TCP feature set (8 features) ─────────────────────────────────────────────
+# TCP feature set (8 features)
 
 TCP_FEATURES: list[tuple[str, callable]] = [
     ("Init Fwd Win Byts", lambda r: r["init_fwd_win_bytes"]),
@@ -20,7 +20,7 @@ TCP_FEATURES: list[tuple[str, callable]] = [
     ("Pkt Len Mean",      lambda r: r["pkt_len_mean"]),
 ]
 
-# ── UDP feature set (8 features) ─────────────────────────────────────────────
+# UDP feature set (8 features)
 
 UDP_FEATURES: list[tuple[str, callable]] = [
     ("TotLen Fwd Pkts", lambda r: r["tot_fwd_bytes"]),

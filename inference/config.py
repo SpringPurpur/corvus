@@ -1,4 +1,4 @@
-# config.py — runtime configuration with persistence.
+# config.py - runtime configuration with persistence.
 #
 # Settings are loaded from /app/config.json on startup. If the file is absent
 # (first run) defaults are used. The analyst can update settings via the
@@ -6,7 +6,7 @@
 # immediately without a restart.
 #
 # Only analyst-facing parameters live here. Internal OIF parameters
-# (n_trees, window sizes, max_leaf_samples) are not exposed — they are
+# (n_trees, window sizes, max_leaf_samples) are not exposed - they are
 # algorithm design choices, not operational knobs.
 
 import json
@@ -21,7 +21,7 @@ _CONFIG_PATH = Path("/app/config.json")
 
 @dataclass
 class AppConfig:
-    # Alert severity thresholds — OIF composite score (0–1).
+    # Alert severity thresholds - OIF composite score (0-1).
     # Raise to reduce false positives; lower to catch more marginal anomalies.
     # threshold_critical raised 0.75 → 0.80 to match TRAIN_THRESHOLD (0.80):
     # flows the model refuses to train on are the same flows shown as CRITICAL.
@@ -56,7 +56,7 @@ def _load(path: Path) -> AppConfig:
         fields = AppConfig.__dataclass_fields__
         return AppConfig(**{k: v for k, v in data.items() if k in fields})
     except Exception:
-        log.warning("Could not load config from %s — using defaults", path, exc_info=True)
+        log.warning("Could not load config from %s - using defaults", path, exc_info=True)
         return AppConfig()
 
 
@@ -71,7 +71,7 @@ def save(cfg: "AppConfig", path: Path = _CONFIG_PATH) -> None:
         log.warning("Could not save config to %s", path, exc_info=True)
 
 
-# Module-level singleton — imported by other modules.
+# Module-level singleton - imported by other modules.
 cfg: AppConfig = _load(_CONFIG_PATH)
 
 

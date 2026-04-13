@@ -1,9 +1,9 @@
-// IncidentList.tsx — streaming incident grouping over the alert ring buffer.
+// IncidentList.tsx - streaming incident grouping over the alert ring buffer.
 //
 // Algorithm: sort alerts by timestamp, then sweep through them keyed by
 // (src_ip, dst_ip, dst_port, proto). A gap larger than `gapSec` between
 // consecutive alerts on the same key closes the current incident and opens
-// a new one. O(n log n) for the sort, O(n) for the sweep — <1 ms on 5 k
+// a new one. O(n log n) for the sort, O(n) for the sweep; <1 ms on 5 k
 // alerts. No server side needed.
 //
 // Three gap presets: 30 s (port-scan granularity), 2 m (default session
@@ -12,10 +12,10 @@
 import { useMemo, useState } from 'react'
 import type { Alert, Severity } from '../types'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// types
 
 interface Incident {
-  id:           string     // unique key for React — src→dst:port/proto@firstSeen
+  id:           string     // unique key for React - src->dst:port/proto@firstSeen
   src_ip:       string
   dst_ip:       string
   dst_port:     number
@@ -29,7 +29,7 @@ interface Incident {
   alerts:       Alert[]
 }
 
-// ── Grouping ──────────────────────────────────────────────────────────────────
+// grouping
 
 function groupIncidents(alerts: Alert[], gapSec: number): Incident[] {
   const sorted = [...alerts].sort((a, b) => a.ts - b.ts)
@@ -83,7 +83,7 @@ function groupIncidents(alerts: Alert[], gapSec: number): Incident[] {
   return closed.sort((a, b) => b.lastSeen - a.lastSeen)
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// helpers
 
 function fmtDuration(secs: number): string {
   if (secs < 1)    return '<1s'
@@ -122,10 +122,10 @@ const GAP_PRESETS = [
   { label: '5 m',  value: 300 },
 ]
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// component
 
 interface Props {
-  alerts: Alert[]   // all alerts — TCP + UDP combined
+  alerts: Alert[]   // all alerts - TCP + UDP combined
 }
 
 export function IncidentList({ alerts }: Props) {

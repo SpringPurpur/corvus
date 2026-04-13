@@ -1,7 +1,7 @@
-# storage.py — SQLite flow persistence.
+# storage.py - SQLite flow persistence.
 #
 # One row per completed alert. Scalar fields are indexed columns; structured
-# data (attribution, shap) is stored as JSON text — too nested to query inside,
+# data (attribution, shap) is stored as JSON text; too nested to query inside,
 # just needs to round-trip faithfully.
 #
 # WAL mode allows the FastAPI thread to read concurrently while the inference
@@ -569,7 +569,7 @@ def _row_to_alert(row: tuple) -> dict:
         "score_comp":  comp,
         "attribution": json.loads(attribution_json or "[]"),
         "timing": {
-            "t_enqueue_ns":  t_enqueue_ns,   # C ring enqueue — true IPC start
+            "t_enqueue_ns":  t_enqueue_ns,   # C ring enqueue - true IPC start
             "t_socket_ns":   t_socket_ns,
             "t_dequeue_ns":  t_dequeue_ns,
             "t_scored_ns":   t_scored_ns,

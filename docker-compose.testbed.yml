@@ -1,4 +1,4 @@
-# docker-compose.testbed.yml — Corvus evaluation testbed overlay.
+# docker-compose.testbed.yml - Corvus evaluation testbed overlay.
 #
 # Adds the 5-node victim mesh, attacker, DNS, and NTP to the core IDS.
 # Also attaches the inference engine to ids_net so the /dev/fast-baseline
@@ -7,7 +7,7 @@
 # Usage:
 #   docker-compose -f docker-compose.yml -f docker-compose.testbed.yml up -d
 #
-# The ids_net subnet (172.20.0.0/24) is defined here — it only exists when
+# The ids_net subnet (172.20.0.0/24) is defined here - it only exists when
 # the testbed overlay is loaded. The core IDS has no dependency on it.
 
 services:
@@ -20,7 +20,7 @@ services:
       ids_net:
         ipv4_address: 172.20.0.31
 
-  # ── Victim nodes (5-node mesh) ────────────────────────────────────────────
+  # Victim nodes (5-node mesh)
   # Each node runs nginx + sshd + a traffic generator that exchanges HTTP,
   # SSH, DNS, and NTP traffic with its peers, simulating a realistic internal
   # segment. Attack scenarios target all 5 nodes simultaneously.
@@ -95,7 +95,7 @@ services:
         ipv4_address: 172.20.0.14
     depends_on: [dns, ntp]
 
-  # ── UDP infrastructure ────────────────────────────────────────────────────
+  # UDP infrastructure
 
   dns:
     build:
@@ -117,7 +117,7 @@ services:
       ids_net:
         ipv4_address: 172.20.0.51
 
-  # ── Attacker ──────────────────────────────────────────────────────────────
+  # Attacker
 
   attacker:
     build:

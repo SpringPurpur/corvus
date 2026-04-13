@@ -1,16 +1,16 @@
-# docker-compose.yml — Corvus IDS core services.
+# docker-compose.yml - Corvus IDS core services.
 #
 # Runs ONLY the capture engine and inference engine.
-# No victim nodes, no attacker, no test network — just the IDS.
+# No victim nodes, no attacker, no test network - just the IDS.
 #
 # For the evaluation testbed add the overlay:
 #   docker-compose -f docker-compose.yml -f docker-compose.testbed.yml up -d
 #
 # Interface selection (evaluated in order by capture/start.sh):
-#   0. capture.json             — set from the dashboard Settings → Capture panel
-#   1. CAPTURE_INTERFACE=eth0   — explicit, set in .env
-#   2. Any UP+PROMISC interface  — analyst ran: ip link set <iface> promisc on
-#   3. Docker bridge for 172.20.0.0/24 — testbed auto-detect fallback
+#   0. capture.json             - set from the dashboard Settings -> Capture panel
+#   1. CAPTURE_INTERFACE=eth0   - explicit, set in .env
+#   2. Any UP+PROMISC interface - analyst ran: ip link set <iface> promisc on
+#   3. Docker bridge for 172.20.0.0/24 - testbed auto-detect fallback
 #
 # Authentication:
 #   Set CORVUS_API_KEY in .env to require X-API-Key on all API calls.
@@ -19,7 +19,7 @@
 
 services:
 
-  # ── Capture engine (C) ────────────────────────────────────────────────────
+  # Capture engine (C)
   monitor:
     build:
       context: ./capture
@@ -28,7 +28,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    # Host network namespace — required to see the monitored interface.
+    # Host network namespace required to see the monitored interface.
     # Container-mode networking only delivers unicast frames addressed to
     # the container's own MAC; host mode gives the full promiscuous view.
     network_mode: host
@@ -44,7 +44,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Inference engine (Python) ─────────────────────────────────────────────
+  # Inference engine (Python)
   inference:
     build: ./inference
     container_name: ids_inference
@@ -55,7 +55,7 @@ services:
       - ./inference/models:/app/models
       - ./inference/config.json:/app/config.json
       - ./data:/app/data
-      # Docker socket — only required for the /dev/fast-baseline endpoint.
+      # Docker socket - only required for the /dev/fast-baseline endpoint.
       # Remove this line if you don't need that feature.
       - /var/run/docker.sock:/var/run/docker.sock
     ports:

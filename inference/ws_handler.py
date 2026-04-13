@@ -1,6 +1,6 @@
-# ws_handler.py — WebSocket connection manager, MessagePack framing, message routing.
+# ws_handler.py - WebSocket connection manager, MessagePack framing, message routing.
 #
-# All messages are MessagePack binary — never JSON. Downstream frames carry
+# All messages are MessagePack binary, never JSON. Downstream frames carry
 # alerts and status; upstream frames carry feedback and LLM requests.
 # The connection manager keeps a set of active WebSocket connections and
 # broadcasts to all of them when a new alert arrives.
@@ -26,12 +26,12 @@ class ConnectionManager:
         await ws.accept()
         async with self._lock:
             self._connections.add(ws)
-        log.debug("WS client connected — %d total", len(self._connections))
+        log.debug("WS client connected - %d total", len(self._connections))
 
     async def disconnect(self, ws: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(ws)
-        log.debug("WS client disconnected — %d remaining", len(self._connections))
+        log.debug("WS client disconnected - %d remaining", len(self._connections))
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Encode message as MessagePack and send to all connected clients."""
@@ -45,7 +45,7 @@ class ConnectionManager:
             try:
                 await ws.send_bytes(data)
             except Exception:
-                # Client disconnected mid-send — mark for removal
+                # client disconnected mid-send - mark for removal
                 dead.append(ws)
 
         if dead:
@@ -59,10 +59,10 @@ class ConnectionManager:
         await ws.send_bytes(data)
 
 
-# Module-level singleton — imported by server.py and main.py
+# Module-level singleton - imported by server.py and main.py
 manager = ConnectionManager()
 
-# Capture-engine liveness flag — set by main.py when the first flow arrives
+# Capture-engine liveness flag - set by main.py when the first flow arrives
 # from the Unix socket.  Read here to send a correct initial status snapshot
 # to newly connected dashboard clients.
 _capture_up: bool = False
@@ -76,7 +76,7 @@ def notify_capture_up() -> None:
 
 async def handle_websocket(
     ws: WebSocket,
-    alert_broadcaster: asyncio.Queue,   # unused — alerts broadcast globally via manager
+    alert_broadcaster: asyncio.Queue,   # unused - alerts broadcast globally via manager
     llm_handler: Any,                   # llm.py functions, passed in to avoid circular import
 ) -> None:
     """Handle a single WebSocket connection lifecycle.
@@ -92,7 +92,7 @@ async def handle_websocket(
     # Greet the new client with the current system state so dots light up
     # immediately on connect / page-refresh instead of waiting for the next flow.
     try:
-        from online_detector import tcp_detector   # lazy — avoids circular import at module level
+        from online_detector import tcp_detector   # lazy import - avoids circular dep at module level
         await manager.send(ws, {
             "type":       "status",
             "capture":    _capture_up,
@@ -143,12 +143,12 @@ async def _receive_loop(ws: WebSocket, llm_handler: Any) -> None:
             )
             log.info("Feedback stored for flow_id=%s dismiss=%s", flow_id, dismiss)
             if dismiss:
-                # Reinforce the OIF — feed the FP flow back as a normal training sample
+                # reinforce the OIF - feed the FP flow back as a normal training sample
                 applied = feedback_reinforce(flow_id, dismiss=True)
                 log.info("FP feedback reinforce flow_id=%s applied=%s", flow_id, applied)
 
         elif msg_type == "llm_request":
-            # Browser asks for an LLM explanation — call async and reply
+            # async LLM request - fire and forget via create_task
             asyncio.create_task(_handle_llm_request(ws, msg, llm_handler))
 
         else:

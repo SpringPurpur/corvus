@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
-// ── API key injection ─────────────────────────────────────────────────────────
+// API key injection
 // When CORVUS_API_KEY is set on the server, every API call must carry
 // X-API-Key. We intercept window.fetch globally so every existing call site
 // gets the header automatically without any per-call changes.
-// The key is stored in sessionStorage — it persists across navigation but is
+// The key is stored in sessionStorage; it persists across navigation but is
 // cleared when the tab closes, which is the right security boundary for a
 // local analyst tool.
 ;(function patchFetch() {

@@ -121,7 +121,7 @@ export function AlertFeed({
         </button>
       </div>
 
-      {/* Bulk action bar — only visible when rows are checked */}
+      {/* Bulk action bar - only visible when rows are checked */}
       {someChecked && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/60 shrink-0">
           <span className="text-[11px] text-muted-foreground flex-1">

@@ -1,8 +1,8 @@
 /*
- * packet_parser.h — zero-copy Ethernet/IP/TCP/UDP parser.
+ * packet_parser.h - zero-copy Ethernet/IP/TCP/UDP parser.
  *
  * All fields are returned in host byte order. The parser never writes to
- * the pcap buffer — it only reads through const pointers with explicit
+ * the pcap buffer; it only reads through const pointers with explicit
  * bounds checks before every dereference.
  */
 #pragma once
@@ -44,10 +44,10 @@ typedef struct {
 /*
  * Parse a raw packet from pcap.
  *
- * buf      — pointer to start of Ethernet frame (pcap gives us this)
- * caplen   — captured byte count (may be less than wire length)
- * ts_ns    — packet timestamp in nanoseconds
- * out      — filled on success
+ * buf:    pointer to start of Ethernet frame (pcap gives us this)
+ * caplen: captured byte count (may be less than wire length)
+ * ts_ns:  packet timestamp in nanoseconds
+ * out:    filled on success
  *
  * Returns 1 on success, 0 if the packet should be dropped (truncated,
  * unsupported protocol, or malformed headers).

@@ -1,11 +1,11 @@
-# classifier.py — inference entry point.
+# classifier.py - inference entry point.
 #
-# Active path: online_detector.process_flow() — MultiWindowIF anomaly detection
+# Active path: online_detector.process_flow() - MultiWindowIF anomaly detection
 # for both TCP and UDP. Protocol-specific feature sets, triple-window scoring,
 # path-depth attribution, baselining period before detection starts.
 #
 # Legacy path: supervised ExtraTrees TCP classifier (extra_trees_tcp.pkl).
-# Kept for reference but not called — feature set no longer matches the struct
+# Kept for reference; not called - feature set no longer matches the struct
 # after fwd_pkts_per_sec / syn_flag_ratio / psh_flag_ratio were added.
 # Re-enable when a retrained model is available.
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 MODELS_DIR = Path(__file__).parent / "models"
 
-# ── Severity maps ─────────────────────────────────────────────────────────────
+# severity maps
 
 TCP_SEVERITY: dict[str, str] = {
     "Benign":                  "INFO",
@@ -76,7 +76,7 @@ class Classifier:
         self._tcp_classes:   list[int] = []
         self._tcp_explainer  = None
 
-        # IsolationForest — prefer a pre-fitted model from disk; fall back to
+        # Prefer a pre-fitted IsolationForest from disk; fall back to
         # fitting on the first 1000 flows seen. The fallback has a cold-start
         # risk (early attacks look "normal") but is acceptable for demo use.
         self._iso: IsolationForest | None = None
@@ -97,7 +97,7 @@ class Classifier:
             self._iso_fitted = True
             log.info("IsolationForest loaded from %s", iso_path)
         else:
-            log.info("No isoforest.pkl found — will fit on first %d flows",
+            log.info("No isoforest.pkl found - will fit on first %d flows",
                      self._ISO_FIT_THRESHOLD)
 
     def _load_models(self) -> None:
@@ -106,7 +106,7 @@ class Classifier:
         self._tcp_model     = tcp_bundle["model"]
         self._tcp_label_map = tcp_bundle["label_map"]   # {original_int: label_str}
         # bundle["classes"] holds the original class IDs in the same order as
-        # predict_proba columns — the model re-encodes them to 0-based internally.
+        # predict_proba columns; the model re-encodes them to 0-based internally.
         self._tcp_classes   = tcp_bundle["classes"]     # [0,1,2,3,4,6,7,8,9,10,11,12,13]
         log.info("TCP classes: %s", [self._tcp_label_map[c] for c in self._tcp_classes])
 
@@ -115,7 +115,7 @@ class Classifier:
         self._tcp_explainer = shap.TreeExplainer(clf_step)
         log.info("TCP model loaded ✓  (UDP unsupervised component: pending)")
 
-    # ── IsolationForest ───────────────────────────────────────────────────────
+    # IsolationForest
 
     def _iso_features(self, flow: dict) -> list[float]:
         """Compact 4-feature vector used for anomaly scoring across protocols."""
@@ -148,7 +148,7 @@ class Classifier:
 
         return 0.0
 
-    # ── SHAP ──────────────────────────────────────────────────────────────────
+    # SHAP
 
     def _top3_shap(self, explainer, feature_vector: np.ndarray,
                    feature_names: list[str]) -> list[list]:
@@ -175,7 +175,7 @@ class Classifier:
             log.warning("SHAP failed for this flow: %s", exc)
             return []
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # public API
 
     def predict(self, flow: dict) -> dict | None:
         """Run inference on a completed flow dict.
@@ -188,7 +188,7 @@ class Classifier:
         if result is None:
             return None   # unsupported protocol
 
-        # During baselining — return a lightweight status update for the dashboard
+        # During baselining, return a lightweight status update for the dashboard
         if result["baselining"]:
             return {
                 "type":     "baselining",
@@ -196,7 +196,7 @@ class Classifier:
                 "progress": result["progress"],
             }
 
-        t_scored_ns = time.time_ns()   # OIF complete — post-scoring stamp
+        t_scored_ns = time.time_ns()   # OIF complete - post-scoring stamp
 
         proto = flow["protocol"]
         return {
@@ -224,9 +224,9 @@ class Classifier:
             # t_scored_ns  : when OIF scoring completed
             #
             # Derived latencies:
-            #   ipc_ms    = (t_socket_ns  - t_enqueue_ns) / 1e6  — true IPC wire+decode
-            #   queue_ms  = (t_dequeue_ns - t_socket_ns)  / 1e6  — Python asyncio queue wait
-            #   oif_ms    = (t_scored_ns  - t_dequeue_ns) / 1e6  — OIF scoring time
+            #   ipc_ms    = (t_socket_ns  - t_enqueue_ns) / 1e6  -- true IPC wire+decode
+            #   queue_ms  = (t_dequeue_ns - t_socket_ns)  / 1e6  -- Python asyncio queue wait
+            #   oif_ms    = (t_scored_ns  - t_dequeue_ns) / 1e6  -- OIF scoring time
             "_timing": {
                 "t_enqueue_ns":  flow.get("t_enqueue_ns", 0),
                 "t_socket_ns":   flow.get("t_socket_ns", 0),
@@ -235,7 +235,7 @@ class Classifier:
             },
         }
 
-    # ── Legacy supervised TCP path (not called — feature set mismatch) ────────
+    # legacy supervised TCP path (not called - feature set mismatch)
     # Re-enable when extra_trees_tcp.pkl is retrained on the updated feature set.
 
     def _predict_supervised_tcp_legacy(self, flow: dict) -> dict:

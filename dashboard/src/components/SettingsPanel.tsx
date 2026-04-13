@@ -1,4 +1,4 @@
-// SettingsPanel.tsx — analyst-facing configuration: alert thresholds,
+// SettingsPanel.tsx - analyst-facing configuration: alert thresholds,
 // baseline management, and visual theme selection.
 //
 // Thresholds take effect immediately on save (inference engine reads cfg
@@ -148,7 +148,7 @@ export function SettingsPanel({ onClose }: Props) {
       .catch(() => { /* leave defaults */ })
   }, [])
 
-  // Load capture interfaces once (lazy — only when panel is open)
+  // Load capture interfaces once (lazy - only when panel is open)
   useEffect(() => {
     if (capFetchedRef.current) return
     capFetchedRef.current = true
@@ -230,10 +230,10 @@ export function SettingsPanel({ onClose }: Props) {
         setCapMsg(`Config saved. ${body.warning}`)
       } else if (body.engine === 'running') {
         setCapMsgOk(true)
-        setCapMsg('Applied — capture engine running.')
+        setCapMsg('Applied - capture engine running.')
       } else if (body.engine === 'failed') {
         setCapMsgOk(false)
-        setCapMsg('Config saved but engine failed to restart — check interface name.')
+        setCapMsg('Config saved but engine failed to restart - check interface name.')
       } else {
         setCapMsgOk(true)
         setCapMsg('Config saved.')
@@ -322,7 +322,7 @@ export function SettingsPanel({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={onClose}
     >
-      {/* Panel — stop propagation so clicking inside doesn't close */}
+      {/* Panel - stop propagation so clicking inside doesn't close */}
       <div
         className="w-[440px] max-w-[calc(100vw-2rem)] max-h-[90vh] border bg-card shadow-xl flex flex-col overflow-hidden"
         style={{ borderRadius: 'var(--radius)' }}
@@ -342,7 +342,7 @@ export function SettingsPanel({ onClose }: Props) {
 
         <div className="flex flex-col gap-5 p-5 overflow-y-auto">
 
-          {/* ── Appearance ─────────────────────────────────────────────── */}
+          {/* Appearance */}
           <section className="flex flex-col gap-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Appearance
@@ -381,7 +381,7 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
           </section>
 
-          {/* ── Thresholds ─────────────────────────────────────────────── */}
+          {/* Thresholds */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Alert Thresholds  <span className="font-normal normal-case">(OIF composite score 0–1)</span>
@@ -407,7 +407,7 @@ export function SettingsPanel({ onClose }: Props) {
             />
           </section>
 
-          {/* ── Baseline window ────────────────────────────────────────── */}
+          {/* Baseline window */}
           <section className="flex flex-col gap-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Baseline Window  <span className="font-normal normal-case">(flows before detection activates)</span>
@@ -456,7 +456,7 @@ export function SettingsPanel({ onClose }: Props) {
             )}
           </div>
 
-          {/* ── Baseline reset ─────────────────────────────────────────── */}
+          {/* Baseline reset */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Baseline Management
@@ -484,7 +484,7 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
           </section>
 
-          {/* ── Export ────────────────────────────────────────────────── */}
+          {/* Export */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Export
@@ -500,7 +500,7 @@ export function SettingsPanel({ onClose }: Props) {
                 className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/60 transition-colors"
                 style={{ borderRadius: 'var(--radius)' }}
               >
-                <span className="font-medium">NDJSON — full flow records</span>
+                <span className="font-medium">NDJSON - full flow records</span>
                 <span className="text-muted-foreground ml-auto text-[10px]">
                   scores · attribution · timing
                 </span>
@@ -511,7 +511,7 @@ export function SettingsPanel({ onClose }: Props) {
                 className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/60 transition-colors"
                 style={{ borderRadius: 'var(--radius)' }}
               >
-                <span className="font-medium">CSV — hourly summary</span>
+                <span className="font-medium">CSV - hourly summary</span>
                 <span className="text-muted-foreground ml-auto text-[10px]">
                   counts · mean score · OIF latency
                 </span>
@@ -519,7 +519,7 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
           </section>
 
-          {/* ── Scenario runner ───────────────────────────────────────── */}
+          {/* Scenario runner */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Scenario Runner
@@ -610,7 +610,7 @@ export function SettingsPanel({ onClose }: Props) {
             )}
           </section>
 
-          {/* ── Feedback history ───────────────────────────────────────── */}
+          {/* Feedback history */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <div className="flex items-center justify-between mt-2">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -661,7 +661,7 @@ export function SettingsPanel({ onClose }: Props) {
             )}
           </section>
 
-          {/* ── System ────────────────────────────────────────────────── */}
+          {/* System */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               System
@@ -671,7 +671,7 @@ export function SettingsPanel({ onClose }: Props) {
               <p className="text-[11px] text-muted-foreground">Loading…</p>
             ) : !sysStatus.docker ? (
               <p className="text-[11px] text-muted-foreground">
-                Docker socket unavailable — container control disabled.
+                Docker socket unavailable - container control disabled.
                 {sysStatus.error && <span className="block font-mono mt-0.5 opacity-70">{sysStatus.error}</span>}
               </p>
             ) : (
@@ -756,7 +756,7 @@ export function SettingsPanel({ onClose }: Props) {
             )}
           </section>
 
-          {/* ── Capture interface ─────────────────────────────────────── */}
+          {/* Capture interface */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
               Capture Interface
@@ -764,10 +764,10 @@ export function SettingsPanel({ onClose }: Props) {
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Select the interface the capture engine should listen on.
               Changes are written to <span className="font-mono">capture.json</span> and
-              applied immediately — no container restart needed.
+              applied immediately - no container restart needed.
             </p>
 
-            {/* Currently running status — sourced from _status in capture.json */}
+            {/* Currently running status - sourced from _status in capture.json */}
             {capStatus?.interface && (
               <div className="flex flex-col gap-1 px-3 py-2 bg-muted/40 text-[11px]"
                 style={{ borderRadius: 'var(--radius)', borderLeft: '2px solid var(--color-count-trained)' }}>
@@ -841,7 +841,7 @@ export function SettingsPanel({ onClose }: Props) {
             {capIfaces !== null && capIfaces.some((i) => i.name.startsWith('br-')) && (
               <p className="text-[10px] text-muted-foreground bg-muted/40 px-2 py-1.5"
                 style={{ borderRadius: 'var(--radius)' }}>
-                Testbed detected — use the <span className="font-mono">br-</span> bridge, not <span className="font-mono">docker0</span>.
+                Testbed detected - use the <span className="font-mono">br-</span> bridge, not <span className="font-mono">docker0</span>.
                 Docker creates a named bridge per compose network; <span className="font-mono">docker0</span> carries only standalone containers.
               </p>
             )}
@@ -879,7 +879,7 @@ export function SettingsPanel({ onClose }: Props) {
               <span className="text-[11px] text-muted-foreground">
                 Persist promiscuous flag on host
                 <span className="block text-[10px] opacity-60">
-                  libpcap sets promisc automatically — only needed for Mode 2 auto-detection
+                  libpcap sets promisc automatically - only needed for Mode 2 auto-detection
                 </span>
               </span>
               <button
@@ -931,7 +931,7 @@ export function SettingsPanel({ onClose }: Props) {
             </div>
           </section>
 
-          {/* ── Developer Mode ────────────────────────────────────────── */}
+          {/* Developer Mode */}
           <section className="flex flex-col gap-3 pt-1 border-t">
             <div className="flex items-center justify-between mt-2">
               <h3
@@ -975,7 +975,7 @@ export function SettingsPanel({ onClose }: Props) {
                 <div className="flex flex-col gap-2">
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
                     Runs <span className="font-mono">fast_baseline.sh</span> on all 5 node
-                    containers simultaneously — generates HTTP, DNS, and SSH traffic to
+                    containers simultaneously; generates HTTP, DNS, and SSH traffic to
                     fill the OIF baselines in ~20 seconds instead of organic traffic time.
                     Requires all node containers to be running.
                   </p>
@@ -1028,7 +1028,7 @@ export function SettingsPanel({ onClose }: Props) {
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     Default 4 blocks micro-flows (port scans, SYN floods) from reaching
                     the OIF. Set to 2–3 to observe how the detector scores these flows.
-                    <span className="font-medium" style={{ color: 'var(--color-badge-warn-text)' }}> Value of 1 floods the inference queue — port scans generate ~1000 flows at once. Poisoning risk at low values.</span>
+                    <span className="font-medium" style={{ color: 'var(--color-badge-warn-text)' }}> Value of 1 floods the inference queue; port scans generate ~1000 flows at once. Poisoning risk at low values.</span>
                   </p>
                 </div>
 
@@ -1066,7 +1066,7 @@ export function SettingsPanel({ onClose }: Props) {
                   </div>
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     Suppress flows from <span className="font-mono">172.20.0.1</span> (Docker
-                    bridge gateway — API polls, dashboard WebSocket). Enables cleaner FPR
+                    bridge gateway; API polls, dashboard WebSocket). Enables cleaner FPR
                     measurement during eval runs. Does not affect detection quality.
                   </p>
                 </div>
@@ -1082,7 +1082,7 @@ export function SettingsPanel({ onClose }: Props) {
 }
 
 
-// ── sub-components ────────────────────────────────────────────────────────────
+// sub-components
 
 function ThresholdSlider({
   label, value, min, max, varName, onChange,

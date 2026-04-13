@@ -1,7 +1,7 @@
 /*
- * features.c — per-packet feature accumulation and AVX2 finalisation.
+ * features.c - per-packet feature accumulation and AVX2 finalisation.
  *
- * The update path is called inside the libpcap callback — every nanosecond
+ * The update path is called inside the libpcap callback; every nanosecond
  * counts. Avoid function call overhead; keep hot paths branch-free where
  * possible.
  *
@@ -15,19 +15,19 @@
 #include <math.h>
 #include <stdint.h>
 
-/* ── Helpers ─────────────────────────────────────────────────────────────── */
+/* --- helpers --- */
 
 static inline uint64_t iat_delta(uint64_t now, uint64_t prev)
 {
     return (now > prev) ? (now - prev) : 0;
 }
 
-/* ── Per-packet accumulation ──────────────────────────────────────────────── */
+/* --- per-packet accumulation --- */
 
 void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
 {
-    // Guard: never update a completed flow — libpcap can deliver retransmissions
-    // after FIN/RST, and we must not corrupt finalised stats
+    // Never update a completed flow; libpcap can deliver retransmissions
+    // after FIN/RST and we must not corrupt finalised stats.
     if (flow->complete)
         return;
 
@@ -35,12 +35,12 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
     uint16_t ip_len = pkt->ip_total_len;   // wire-level packet length
     uint16_t payload = pkt->payload_len;
 
-    // ── Timestamps ────────────────────────────────────────────────────────
+    // timestamps
     if (flow->first_pkt_ns == 0)
         flow->first_pkt_ns = ts;
     flow->last_pkt_ns = ts;
 
-    // ── All-packet IAT ────────────────────────────────────────────────────
+    // all-packet IAT
     if (flow->last_pkt_ns_for_iat != 0) {
         uint64_t delta = iat_delta(ts, flow->last_pkt_ns_for_iat);
         if (flow->all_iat_buf_count < 256)
@@ -48,14 +48,14 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
     }
     flow->last_pkt_ns_for_iat = ts;
 
-    // ── All-packet length buffer (for global mean/std) ────────────────────
-    // Clamp to buffer size — under flood conditions this is expected
+    // all-packet length buffer (for global mean/std)
+    // Clamp to buffer size; under flood conditions this is expected.
     if (flow->pkt_len_buf_count < 512)
         flow->pkt_len_buf[flow->pkt_len_buf_count++] = ip_len;
 
     flow->tot_pkts++;
 
-    // ── Forward direction ─────────────────────────────────────────────────
+    // forward direction
     if (is_fwd) {
         flow->tot_fwd_pkts++;
         flow->tot_fwd_bytes += ip_len;
@@ -64,7 +64,7 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
         if (ip_len > flow->fwd_pkt_len_max)
             flow->fwd_pkt_len_max = ip_len;
 
-        // Fwd segment size min — min of payload lengths, not IP lengths.
+        // Fwd segment size min: min of payload lengths, not IP lengths.
         // Only meaningful for TCP; UDP "segments" have the same concept.
         // Initialised to UINT32_MAX at flow creation so first packet sets it.
         if (payload < flow->fwd_seg_size_min)
@@ -85,7 +85,7 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
         // TCP-specific
         if (pkt->protocol == 6) {
             // Capture initial window size from the first forward SYN only.
-            // Post-SYN packets may have window scaling applied — the raw SYN
+            // Post-SYN packets may have window scaling applied; the raw SYN
             // value is what CICFlowMeter records and what the model trained on.
             if (!flow->init_win_captured && (pkt->tcp_flags & 0x02)) {
                 flow->init_fwd_win_bytes = pkt->tcp_window;
@@ -94,7 +94,7 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
         }
     }
 
-    // ── Backward direction ────────────────────────────────────────────────
+    // backward direction
     else {
         flow->tot_bwd_pkts++;
         flow->tot_bwd_bytes += ip_len;
@@ -107,10 +107,9 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
             flow->bwd_pkt_len_buf[flow->bwd_pkt_len_buf_count++] = ip_len;
     }
 
-    // ── TCP flags — accumulate individually (AVX2 batch at finalisation) ─
-    // We store raw flag bytes in a separate per-packet buffer for the AVX2
-    // path, but for correctness under small counts we also track them here
-    // incrementally. This avoids needing a separate flags buffer allocation.
+    // TCP flags: accumulate individually here; AVX2 batch at finalisation.
+    // Raw flag bytes go into a per-packet buffer for the AVX2 path, but we
+    // also track them incrementally for correctness under small counts.
     if (pkt->protocol == 6) {
         uint8_t f = pkt->tcp_flags;
         if (f & 0x01) flow->fin_flag_cnt++;
@@ -122,14 +121,14 @@ void features_update(flow_record_t *flow, const parsed_pkt_t *pkt, int is_fwd)
     }
 }
 
-/* ── Flow finalisation ────────────────────────────────────────────────────── */
+/* --- flow finalisation --- */
 
 void features_finalise(flow_record_t *flow)
 {
     if (flow->complete)
         return;
 
-    // ── Flow duration ─────────────────────────────────────────────────────
+    // flow duration
     if (flow->last_pkt_ns > flow->first_pkt_ns) {
         double dur_ns = (double)(flow->last_pkt_ns - flow->first_pkt_ns);
         flow->flow_duration_s = (float)(dur_ns / 1e9);
@@ -137,13 +136,13 @@ void features_finalise(flow_record_t *flow)
         flow->flow_duration_s = 0.0f;
     }
 
-    // ── Backward packets per second ───────────────────────────────────────
+    // backward packets per second
     if (flow->flow_duration_s > 0.0f)
         flow->bwd_pkts_per_sec = (float)flow->tot_bwd_pkts / flow->flow_duration_s;
     else
         flow->bwd_pkts_per_sec = 0.0f;
 
-    // ── Global packet length mean and std (AVX2) ───────────────────────────
+    // global packet length mean and std (AVX2)
     if (flow->pkt_len_buf_count > 0) {
         compute_pkt_len_stats_avx2(
             flow->pkt_len_buf,
@@ -153,7 +152,7 @@ void features_finalise(flow_record_t *flow)
         );
     }
 
-    // ── Backward packet length mean and std (AVX2) ────────────────────────
+    // backward packet length mean and std (AVX2)
     if (flow->bwd_pkt_len_buf_count > 0) {
         compute_pkt_len_stats_avx2(
             flow->bwd_pkt_len_buf,
@@ -163,18 +162,17 @@ void features_finalise(flow_record_t *flow)
         );
     }
 
-    // ── Flow IAT mean (all packets) ───────────────────────────────────────
+    // flow IAT mean (all packets)
     if (flow->all_iat_buf_count > 0) {
-        // Reuse AVX2 stats on the IAT buffer by treating ns uint64 as scaled
-        // uint16 values. For IATs up to ~65535 μs we can do this directly;
-        // for larger IATs we use a scalar mean to avoid truncation.
+        // Scalar mean over IAT buffer; AVX2 path not used here due to
+        // uint64 width of IAT deltas (truncation risk with uint16 downscale).
         double sum = 0.0;
         for (uint32_t i = 0; i < flow->all_iat_buf_count; i++)
             sum += (double)flow->all_iat_buf[i];
         flow->flow_iat_mean = (float)(sum / flow->all_iat_buf_count);
     }
 
-    // ── Forward IAT std (AVX2 via uint16 downscale if safe, scalar otherwise)
+    // forward IAT std (scalar double for precision)
     if (flow->fwd_iat_buf_count > 0) {
         // Compute mean and variance in double for precision
         double sum = 0.0;
@@ -190,16 +188,14 @@ void features_finalise(flow_record_t *flow)
         flow->fwd_iat_std = (float)sqrt(sq_sum / flow->fwd_iat_buf_count);
     }
 
-    // ── Fix up fwd_seg_size_min if no forward packets seen ────────────────
-    // If UINT32_MAX was never overwritten (no fwd packets), reset to 0
+    // Fix up fwd_seg_size_min: if no fwd packets were seen, UINT32_MAX
+    // was never overwritten - reset to 0.
     if (flow->fwd_seg_size_min == UINT32_MAX)
         flow->fwd_seg_size_min = 0;
 
-    // ── Derived features for IsolationForest models ───────────────────────
-    // Normalised ratios are duration/count-independent, matching RFC 7011
-    // recommendations for flow statistics. Raw counts vary with flow length;
-    // ratios do not — a 10-packet SYN flood has the same syn_flag_ratio as
-    // a 10000-packet SYN flood.
+    // Derived features for IsolationForest models.
+    // Normalised ratios are duration/count-independent, per RFC 7011.
+    // A 10-packet SYN flood has the same syn_flag_ratio as a 10000-packet one.
     flow->fwd_pkts_per_sec = (flow->flow_duration_s > 0.0f)
         ? (float)flow->tot_fwd_pkts / flow->flow_duration_s : 0.0f;
 

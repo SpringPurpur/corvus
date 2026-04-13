@@ -1,8 +1,8 @@
-// ModelHealth.tsx — OIF detector health panel showing poisoning defence activity,
+// ModelHealth.tsx - OIF detector health panel showing poisoning defence activity,
 // score distributions, and memory/forgetting characteristics per protocol.
 //
 // Rejection rate is the key signal: a rising rate means anomalous flows are being
-// withheld from training — the poisoning defence is active. A falling rate after
+// withheld from training; the poisoning defence is active. A falling rate after
 // an attack ends reflects the window forgetting the attack distribution.
 
 import type { OifMetrics, AppConfig, Alert } from '../types'
@@ -211,7 +211,7 @@ function ProtocolPanel({ label, proto, m, alerts, thHigh, thCrit, config }: {
         <ScoreHistogram alerts={alerts} thHigh={thHigh} thCrit={thCrit} />
       )}
 
-      {/* Sparkline — last 20 composite scores */}
+      {/* Sparkline - last 20 composite scores */}
       <div>
         <div className="text-[10px] text-muted-foreground mb-1">Recent scores</div>
         <ScoreSparkline scores={m.score_recent} thHigh={thHigh} thCrit={thCrit} />
@@ -249,9 +249,9 @@ export function ModelHealth({ tcp, udp, config, tcpAlerts, udpAlerts }: Props) {
       {/* Window memory reference */}
       <div className="border-t border-border pt-3 text-[10px] text-muted-foreground space-y-1">
         <div className="font-medium text-foreground text-xs mb-1">Window memory</div>
-        <div>Fast  (256 flows) — adapts quickly, forgets quickly</div>
-        <div>Medium (1 024 flows) — balanced adaptation</div>
-        <div>Slow  (4 096 flows) — resistant to poisoning, slow to forget</div>
+        <div>Fast  (256 flows) - adapts quickly, forgets quickly</div>
+        <div>Medium (1 024 flows) - balanced adaptation</div>
+        <div>Slow  (4 096 flows) - resistant to poisoning, slow to forget</div>
         <div className="pt-1 opacity-70">
           Composite = 20% fast + 30% medium + 50% slow.
           Flows scoring ≥ {(config.threshold_high * 100).toFixed(0)}% are withheld from training.

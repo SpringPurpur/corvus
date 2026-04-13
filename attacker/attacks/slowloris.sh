@@ -1,10 +1,10 @@
 #!/bin/sh
-# slowloris.sh — Slowloris HTTP DoS via slowhttptest against all victim nodes.
+# slowloris.sh - Slowloris HTTP DoS via slowhttptest against all victim nodes.
 # Opens many concurrent connections and sends headers very slowly,
 # exhausting the server's connection pool without generating high packet rates.
 # Key OIF signature: very long flow_duration_s (>60s), fwd_pkts_per_sec < 1,
 # many simultaneous connections from the same source IP.
-# All 5 nodes targeted in parallel — realistic subnet-wide slow-HTTP campaign.
+# All 5 nodes targeted in parallel - realistic subnet-wide slow-HTTP campaign.
 CONNS=${1:-200}
 DURATION=${2:-120}
 

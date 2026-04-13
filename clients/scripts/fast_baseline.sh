@@ -1,5 +1,5 @@
 #!/bin/bash
-# fast_baseline.sh — aggressive benign traffic to fill both OIF baselines quickly.
+# fast_baseline.sh - aggressive benign traffic to fill both OIF baselines quickly.
 #
 # Runs from all 5 victim nodes simultaneously via run_scenario.py:
 #   docker exec ids_node_N /traffic.sh (already running continuously)
@@ -19,7 +19,7 @@ NTP=172.20.0.51
 # Exclude self: packets to a container's own IP are delivered via loopback,
 # not through the veth pair on the bridge, so the monitor never captures them.
 # With shuf picking from all 5 nodes, 1/5 of flows were invisible regardless
-# of TCP_COUNT — this was the main cause of the ~3700/4096 shortfall.
+# of TCP_COUNT - this was the main cause of the ~3700/4096 shortfall.
 MY_IP=$(hostname -I | awk '{print $1}')
 TARGETS=$(echo "$NODES" | tr ' ' '\n' | grep -vF "${MY_IP}" | paste -sd ' ')
 [ -z "$TARGETS" ] && TARGETS="$NODES"   # fallback if hostname -I fails
@@ -35,9 +35,9 @@ SSH_COUNT=${3:-20}     # 20 SSH sessions per node × 5 nodes = 100 SSH flows in 
                        # fall outside the scaler bounding box and trigger OOR=1.0.
 
 # File-size mix targets (sum to 10, RANDOM % 10 used for selection):
-#   0-4 (50%) medium.bin   100 KB  — moderate duration, mid bwd_pkts_per_sec
-#   5-8 (40%) index.html   ~200 B  — very short, high bwd_pkts_per_sec per second
-#   9   (10%) large.bin    1 MB    — longer duration, lower bwd_pkts_per_sec
+#   0-4 (50%) medium.bin   100 KB  - moderate duration, mid bwd_pkts_per_sec
+#   5-8 (40%) index.html   ~200 B  - very short, high bwd_pkts_per_sec per second
+#   9   (10%) large.bin    1 MB    - longer duration, lower bwd_pkts_per_sec
 #
 # Previously used medium.bin exclusively: the scaler's IQR for bwd_pkts_per_sec
 # was anchored to a single tight cluster, making every small-file HTTP response
@@ -47,21 +47,21 @@ SSH_COUNT=${3:-20}     # 20 SSH sessions per node × 5 nodes = 100 SSH flows in 
 log() { echo "[$(date '+%H:%M:%S')] [fast-baseline] $*"; }
 
 dns_query() {
-    # Use only internally-resolvable names — dnsmasq answers from its local
+    # Use only internally-resolvable names - dnsmasq answers from its local
     # address table in <1 ms. External names (google.com etc.) require a
     # forward to 8.8.8.8 which may be unavailable inside the isolated bridge
-    # network, causing 3×2 s = 6 s stalls that collapse the UDP fill rate.
-    # +retry=0 ensures a single attempt; dnsmasq always responds (<1 ms),
-    # so retries are wasteful and only cause delays on misconfiguration.
+    # network, causing 3x2 s = 6 s stalls that collapse the UDP fill rate.
+    # +retry=0 limits to a single attempt; dnsmasq always responds (<1 ms),
+    # so retries only cause delays on misconfiguration.
     local names=("ids-node-1.ids" "ids-node-2.ids" "ids-node-3.ids"
                  "ids-node-4.ids" "ids-node-5.ids" "dns.ids")
     local name=${names[$(( RANDOM % ${#names[@]} ))]}
     dig +short +time=2 +retry=0 "@$DNS" "$name" A >/dev/null 2>&1 || true
 }
 
-log "Starting — TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (per node)"
+log "Starting - TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (per node)"
 
-# TCP: burst HTTP requests to random nodes — no sleep for maximum fill rate.
+# TCP: burst HTTP requests to random nodes - no sleep for maximum fill rate.
 # Each request picks a random file size to produce a diverse bwd_pkts_per_sec
 # distribution in the baseline corpus.
 (
@@ -79,7 +79,7 @@ log "Starting — TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (pe
         fi
         if (( i % 100 == 0 )); then log "TCP: $i / $TCP_COUNT"; fi
     done
-    log "TCP done — $TCP_COUNT flows sent."
+    log "TCP done - $TCP_COUNT flows sent."
 ) &
 
 (
@@ -91,12 +91,12 @@ log "Starting — TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (pe
             busybox ntpd -q -p "$NTP" >/dev/null 2>&1 || true
         fi
         if (( i % 50 == 0 )); then log "UDP: $i / $UDP_COUNT"; fi
-        sleep 0.1   # ~10 DNS queries/s — don't overwhelm dnsmasq
+        sleep 0.1   # ~10 DNS queries/s - don't overwhelm dnsmasq
     done
-    log "UDP done — $UDP_COUNT flows sent."
+    log "UDP done - $UDP_COUNT flows sent."
 ) &
 
-# SSH: sequential sessions — ~1-2s each, runs in parallel with TCP/UDP loops.
+# SSH: sequential sessions (~1-2s each), runs in parallel with TCP/UDP loops.
 # 20 sessions × 5 nodes = 100 SSH flows seeded into the training set so the
 # OIF learns SSH flow_duration_s (~1-3s) and init_fwd_win_bytes before it
 # switches to detection mode. Without this, fresh-start baselines produce
@@ -113,7 +113,7 @@ log "Starting — TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (pe
             testuser@"$TARGET" "echo done" 2>/dev/null || true
         if (( i % 5 == 0 )); then log "SSH: $i / $SSH_COUNT"; fi
     done
-    log "SSH done — $SSH_COUNT sessions sent."
+    log "SSH done - $SSH_COUNT sessions sent."
 ) &
 
 wait

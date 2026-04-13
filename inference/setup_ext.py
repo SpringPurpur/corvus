@@ -1,5 +1,5 @@
 """
-setup_ext.py — build the _array_tree Cython extension in-place.
+setup_ext.py - build the _array_tree Cython extension in-place.
 
 Run from the inference/ directory:
     python setup_ext.py build_ext --inplace

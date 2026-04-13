@@ -1,5 +1,5 @@
 /*
- * flow_table.c — FNV-1a hash map with linear probing and Robin Hood repair.
+ * flow_table.c - FNV-1a hash map with linear probing and Robin Hood repair.
  *
  * Key normalisation: lower IP is always stored as src_ip. This ensures
  * packets from both sides of a flow map to the same slot regardless of
@@ -16,7 +16,7 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ── FNV-1a hash over the 5-tuple ────────────────────────────────────────── */
+/* --- FNV-1a hash over the 5-tuple --- */
 
 #define FNV_OFFSET_BASIS_32  2166136261U
 #define FNV_PRIME_32         16777619U
@@ -49,7 +49,7 @@ static uint32_t hash_key(const flow_key_t *k)
     return h;
 }
 
-/* ── Key normalisation ────────────────────────────────────────────────────── */
+/* --- key normalisation --- */
 
 /*
  * Normalise so lower IP is always src. Returns 1 if the original src_ip
@@ -75,7 +75,7 @@ static int keys_equal(const flow_key_t *a, const flow_key_t *b)
         && a->protocol == b->protocol;
 }
 
-/* ── Public API ───────────────────────────────────────────────────────────── */
+/* --- public API --- */
 
 void flow_table_init(flow_table_t *t)
 {
@@ -100,7 +100,7 @@ flow_record_t *flow_table_get_or_create(flow_table_t *t,
 
     for (uint32_t i = 0; i < FLOW_TABLE_SIZE; i++) {
         if (!t->occupied[slot]) {
-            // Empty slot — insert new flow here
+            // empty slot - insert new flow here
             flow_record_t *r = &t->slots[slot];
             memset(r, 0, sizeof(*r));
             r->key            = key;
@@ -119,7 +119,7 @@ flow_record_t *flow_table_get_or_create(flow_table_t *t,
         slot = (slot + 1) & (FLOW_TABLE_SIZE - 1);
     }
 
-    // Table is completely full — drop the packet
+    // table full - drop the packet
     t->flows_dropped++;
     if (t->flows_dropped % 1000 == 0) {
         fprintf(stderr, "[flow_table] WARNING: table full, %llu flows dropped total\n",
@@ -136,8 +136,8 @@ void flow_table_remove(flow_table_t *t, flow_record_t *flow)
     t->occupied[slot] = 0;
 
     // Robin Hood repair: shift back any entries whose natural slot is at or
-    // before the newly freed slot. Without this, their probe chains would
-    // be broken and they'd become unreachable.
+    // before the freed slot. Without this, their probe chains would be broken
+    // and the entries would become unreachable.
     uint32_t free_slot = slot;
     uint32_t next_slot = (slot + 1) & (FLOW_TABLE_SIZE - 1);
 
@@ -182,10 +182,9 @@ void flow_table_expire(flow_table_t *t, uint64_t now_ns,
         if (idle >= FLOW_IDLE_TIMEOUT_NS)
             cb(&t->slots[i], ctx);
         else if (active >= FLOW_ACTIVE_TIMEOUT_NS)
-            // Active timeout for all protocols — bounds detection latency to 30s
-            // regardless of whether the flow sends FIN/RST or not. TCP flows that
-            // never complete cleanly (half-open, dropped connections, slow attacks)
-            // are emitted as partial windows; features remain valid on partial flows.
+            // Active timeout: bounds detection latency to 10s regardless of FIN/RST.
+            // TCP flows that never complete cleanly (half-open, slow attacks) are
+            // emitted as partial windows; features remain valid on partial flows.
             cb(&t->slots[i], ctx);
     }
 }

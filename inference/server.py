@@ -1,14 +1,14 @@
-# server.py — FastAPI app: WebSocket /ws, GET /health, StaticFiles /.
+# server.py - FastAPI app: WebSocket /ws, GET /health, StaticFiles /.
 #
 # The app is mounted with StaticFiles last so /ws and /health take priority.
 # CORSMiddleware allows the Vite dev server (localhost:5173) during development.
-# In production the browser is served from the same origin — no CORS needed.
+# In production the browser is served from the same origin, no CORS needed.
 #
 # Authentication:
 #   Set CORVUS_API_KEY in the environment to require authentication.
 #   API endpoints: X-API-Key: <key> request header.
 #   WebSocket /ws: ?key=<key> query parameter (browsers can't set WS headers).
-#   Leave CORVUS_API_KEY unset (or empty) to disable — suitable for trusted
+#   Leave CORVUS_API_KEY unset (or empty) to disable - suitable for trusted
 #   networks or local development.
 
 import asyncio
@@ -36,11 +36,11 @@ log = logging.getLogger(__name__)
 
 STATIC_DIR = Path("/app/static")
 
-# ── API key authentication ─────────────────────────────────────────────────────
+# API key authentication
 # Read once at startup; requires container restart to change.
 _API_KEY = os.environ.get("CORVUS_API_KEY", "").strip()
 
-# Paths that bypass authentication — health probes and the dashboard bundle.
+# Paths that bypass authentication - health probes and the dashboard bundle.
 _OPEN_PATHS = {"/health", "/llm/status"}
 
 
@@ -60,19 +60,19 @@ class _ApiKeyMiddleware(BaseHTTPMiddleware):
             # Static asset (e.g. /index.html, /assets/main.js)
             return await call_next(request)
 
-        # WebSocket — check query param (browser JS cannot set custom WS headers)
+        # WebSocket - check query param (browser JS cannot set custom WS headers)
         if path == "/ws":
             if request.query_params.get("key") == _API_KEY:
                 return await call_next(request)
-            log.warning("WS connection rejected — missing or wrong key from %s",
+            log.warning("WS connection rejected - missing or wrong key from %s",
                         request.client)
             return Response("Unauthorized", status_code=401)
 
-        # All other API routes — check header
+        # all other API routes - check header
         if request.headers.get("X-API-Key") == _API_KEY:
             return await call_next(request)
 
-        log.warning("API request rejected — missing or wrong key: %s %s",
+        log.warning("API request rejected - missing or wrong key: %s %s",
                     request.method, path)
         return Response(
             '{"detail":"Unauthorized — X-API-Key header required"}',
@@ -96,7 +96,7 @@ app.add_middleware(
 # Injected by main.py after startup so WebSocket handler can call LLM functions
 _llm_handler = None
 _alert_queue: asyncio.Queue | None = None
-# Thread queues exposed for /stats queue_depth — set by configure()
+# Thread queues exposed for /stats queue_depth - set by configure()
 _tcp_queue = None
 _udp_queue = None
 _flow_queue = None
@@ -122,7 +122,7 @@ async def health() -> dict:
 async def llm_status() -> dict:
     """Return whether the LLM integration is available.
 
-    Checks that ANTHROPIC_API_KEY is set and non-empty — no API call is made,
+    Checks that ANTHROPIC_API_KEY is set and non-empty - no API call is made,
     so this endpoint is free and instant.
     """
     import os
@@ -177,7 +177,7 @@ async def post_config(body: ConfigBody) -> dict:
 async def reset_baseline(protocol: str = Query(default="all")) -> dict:
     if protocol not in ("TCP", "UDP", "all"):
         raise HTTPException(400, "protocol must be TCP, UDP, or all")
-    # Import here to avoid circular import — online_detector imports config
+    # Import here to avoid circular import; online_detector imports config
     from online_detector import reset_detector
     reset_detector(protocol)
     return {"ok": True, "protocol": protocol}
@@ -392,7 +392,7 @@ async def dev_fast_baseline() -> dict:
     try:
         import docker as docker_sdk
     except ImportError:
-        raise HTTPException(500, "docker SDK not installed — rebuild the inference image")
+        raise HTTPException(500, "docker SDK not installed - rebuild the inference image")
 
     def _exec_all() -> dict:
         triggered = []
@@ -413,7 +413,7 @@ async def dev_fast_baseline() -> dict:
                     triggered.append(node)
                     log.info("[dev] fast_baseline.sh started on %s", node)
                 except docker_sdk.errors.NotFound:
-                    log.warning("[dev] Container %s not found — skipping", node)
+                    log.warning("[dev] Container %s not found - skipping", node)
                     skipped.append(node)
         finally:
             client.close()
@@ -432,7 +432,7 @@ async def dev_fast_baseline() -> dict:
 async def export_flows_ndjson() -> StreamingResponse:
     """Stream all flow records as NDJSON (one JSON object per line).
 
-    Includes per-window scores and attribution — suitable for re-running
+    Includes per-window scores and attribution; suitable for re-running
     through other ML models or comparative analysis in the thesis.
     """
     return StreamingResponse(
@@ -466,7 +466,7 @@ async def export_summary_csv() -> Response:
     )
 
 
-# ── System / container control ────────────────────────────────────────────────
+# system / container control
 # Requires /var/run/docker.sock to be mounted in the inference container.
 
 _MANAGED = {
@@ -516,7 +516,7 @@ async def get_system_status() -> dict:
 @app.post("/system/{container}/restart")
 async def restart_container(container: str) -> dict:
     if container not in _MANAGED:
-        raise HTTPException(400, f"unknown container '{container}' — choose: {list(_MANAGED)}")
+        raise HTTPException(400, f"unknown container '{container}'; choose: {list(_MANAGED)}")
     try:
         import docker as docker_sdk
     except ImportError:
@@ -542,7 +542,7 @@ async def restart_container(container: str) -> dict:
 @app.post("/system/{container}/stop")
 async def stop_container(container: str) -> dict:
     if container not in _MANAGED:
-        raise HTTPException(400, f"unknown container '{container}' — choose: {list(_MANAGED)}")
+        raise HTTPException(400, f"unknown container '{container}'; choose: {list(_MANAGED)}")
     try:
         import docker as docker_sdk
     except ImportError:
@@ -570,7 +570,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await handle_websocket(ws, _alert_queue, _llm_handler)
 
 
-# ── Capture configuration ──────────────────────────────────────────────────────
+# capture configuration
 # capture.json is bind-mounted into both the inference and monitor containers.
 # Inference writes it; monitor reads it on each restart of capture_engine.
 
@@ -596,9 +596,9 @@ async def get_capture_interfaces() -> dict:
     """List network interfaces visible to the monitor container via Docker exec.
 
     Returns three things so the dashboard can show a complete picture:
-      config  — what the analyst configured in capture.json (requested)
-      status  — what the monitor is actually running right now (_status key)
-      interfaces — live interface list from the monitor container
+      config:  what the analyst configured in capture.json (requested)
+      status:  what the monitor is actually running right now (_status key)
+      interfaces: live interface list from the monitor container
     Requires /var/run/docker.sock to be mounted.
     """
     try:
@@ -673,14 +673,14 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
     except ImportError:
         _write_capture_cfg(cfg)
         return {"ok": True, "config": cfg,
-                "warning": "docker SDK not installed — restart monitor manually"}
+                "warning": "docker SDK not installed - restart monitor manually"}
 
     def _apply() -> dict:
         client = _docker_client()
         try:
             container = client.containers.get(_MONITOR_CONTAINER)
 
-            # ── 1. Validate BPF filter ────────────────────────────────────
+            # 1. validate BPF filter
             if body.filter:
                 full_filter = f"ip and (tcp or udp) and ({body.filter})"
                 r = container.exec_run(
@@ -691,13 +691,13 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
                     err = r.output.decode(errors="replace").strip()
                     raise ValueError(err)
 
-            # ── 2. Write config ───────────────────────────────────────────
+            # 2. write config
             _write_capture_cfg(cfg)
 
             if not body.restart:
                 return {"ok": True, "config": cfg, "engine": "not_restarted"}
 
-            # ── 3. Set promisc if requested ───────────────────────────────
+            # 3. set promisc if requested
             if body.interface and body.promisc:
                 container.exec_run(
                     ["ip", "link", "set", body.interface, "promisc", "on"],
@@ -705,7 +705,7 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
                 )
                 log.info("[capture] set %s promisc on", body.interface)
 
-            # ── 4. Kill running engine ────────────────────────────────────
+            # 4. kill running engine
             container.exec_run(
                 ["sh", "-c",
                  "kill $(cat /tmp/capture_engine.pid 2>/dev/null) 2>/dev/null; true"],
@@ -713,7 +713,7 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
             )
             log.info("[capture] capture_engine signalled, waiting for restart")
 
-            # ── 5. Poll for new engine (start.sh sleeps 3 s before restart)
+            # 5. poll for new engine
             # Poll every 0.5 s, up to 6 s total.
             engine = "failed"
             for _ in range(12):
@@ -752,11 +752,11 @@ async def get_capture_config() -> dict:
     return _read_capture_cfg()
 
 
-# Serve built React bundle — mounted last so API routes take priority.
+# Serve built React bundle - mounted last so API routes take priority.
 # Only mounted if the static directory exists; during development the Vite
 # dev server serves the frontend instead.
 if STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 else:
-    log.warning("Static dir %s not found — dashboard will not be served. "
+    log.warning("Static dir %s not found - dashboard will not be served. "
                 "Use the Vite dev server at http://localhost:5173 instead.", STATIC_DIR)

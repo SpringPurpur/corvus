@@ -1,4 +1,4 @@
-// FeatureRadar.tsx — spider/radar chart of per-feature IQR deviation.
+// FeatureRadar.tsx - spider/radar chart of per-feature IQR deviation.
 //
 // Each axis = one attribution feature.  The radius encodes how many IQRs the
 // anomalous flow's value sits away from the baseline median:
@@ -97,7 +97,7 @@ export function FeatureRadar({ attribution, severity }: Props) {
         />
       ))}
 
-      {/* Normal band — 1 IQR from baseline */}
+      {/* Normal band - 1 IQR from baseline */}
       <polygon
         points={toPoints(normalFrac)}
         fill="var(--color-score-normal)"

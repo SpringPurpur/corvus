@@ -1,8 +1,8 @@
 /*
- * packet_parser.c — zero-copy Ethernet/IP/TCP/UDP parser.
+ * packet_parser.c - zero-copy Ethernet/IP/TCP/UDP parser.
  *
  * Parses exactly what CICFlowMeter parses: Ethernet II frames carrying IPv4
- * TCP or UDP. Everything else (IPv6, ICMP, VLAN, ARP) is silently dropped —
+ * TCP or UDP. Everything else (IPv6, ICMP, VLAN, ARP) is silently dropped;
  * those protocols produce no training data in CIC-IDS 2018.
  *
  * All multi-byte fields from the wire are converted from network byte order
@@ -14,7 +14,7 @@
 #include <string.h>
 #include <arpa/inet.h>   // ntohs, ntohl
 
-/* ── Wire format constants ────────────────────────────────────────────────── */
+/* --- wire format constants --- */
 
 #define ETHERTYPE_IPV4  0x0800
 #define IP_PROTO_TCP    6
@@ -33,7 +33,7 @@
 #define UDP_HDR_LEN     8
 
 /*
- * SAFE_READ_U16 / SAFE_READ_U32 — bounds-checked big-endian reads.
+ * SAFE_READ_U16 / SAFE_READ_U32 - bounds-checked big-endian reads.
  * Evaluates to 0 and jumps to 'drop' if offset + size would exceed caplen.
  * Using a macro instead of a function avoids the overhead of an extra call
  * per field while keeping the bounds check visible at every read site.
@@ -56,27 +56,27 @@
         (dst) = ntohl(_v);                             \
     } while (0)
 
-/* ── Public API ───────────────────────────────────────────────────────────── */
+/* --- public API --- */
 
 int parse_packet(const uint8_t *buf, uint32_t caplen,
                  uint64_t ts_ns, parsed_pkt_t *out)
 {
     uint32_t off = 0;
 
-    /* ── Ethernet II ────────────────────────────────────────────────────── */
+    /* Ethernet II */
     if (caplen < ETH_HDR_LEN)
         goto drop;
 
     uint16_t ethertype;
     SAFE_READ_U16(buf, 12, caplen, ethertype);
 
-    // Only process IPv4 — IPv6 and everything else is out of scope
+    // Only IPv4; drop everything else
     if (ethertype != ETHERTYPE_IPV4)
         goto drop;
 
     off = ETH_HDR_LEN;
 
-    /* ── IPv4 ───────────────────────────────────────────────────────────── */
+    /* IPv4 */
     if (off + IP_HDR_MIN_LEN > caplen)
         goto drop;
 
@@ -99,7 +99,7 @@ int parse_packet(const uint8_t *buf, uint32_t caplen,
 
     off += ip_hdr_len;
 
-    /* ── TCP ────────────────────────────────────────────────────────────── */
+    /* TCP */
     if (protocol == IP_PROTO_TCP) {
         if (off + TCP_HDR_MIN_LEN > caplen)
             goto drop;
@@ -120,7 +120,7 @@ int parse_packet(const uint8_t *buf, uint32_t caplen,
         uint16_t tcp_window;
         SAFE_READ_U16(buf, off + 14, caplen, tcp_window);
 
-        // Payload length from IP total length, not caplen — avoids counting
+        // Payload length from IP total length, not caplen - avoids counting
         // padding bytes added by the NIC or capture layer
         uint16_t payload_len = 0;
         if (ip_total_len >= ip_hdr_len + tcp_hdr_len)
@@ -139,7 +139,7 @@ int parse_packet(const uint8_t *buf, uint32_t caplen,
         return 1;
     }
 
-    /* ── UDP ────────────────────────────────────────────────────────────── */
+    /* UDP */
     if (protocol == IP_PROTO_UDP) {
         if (off + UDP_HDR_LEN > caplen)
             goto drop;

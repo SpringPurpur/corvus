@@ -1,7 +1,7 @@
-// HeatmapRibbon.tsx — 24 h per-window score heatmap for the Health tab.
+// HeatmapRibbon.tsx - 24 h per-window score heatmap for the Health tab.
 //
 // X-axis: time (last 24 h, 5-min buckets → up to 288 columns).
-// Y-axis: 3 rows — fast (256), medium (1 024), slow (4 096) window scores.
+// Y-axis: 3 rows - fast (256), medium (1 024), slow (4 096) window scores.
 //
 // Each cell is coloured by the average OIF score in that bucket:
 //   green  → below HIGH threshold   (detector is calm)
@@ -66,7 +66,7 @@ export function HeatmapRibbon({ proto, config }: Props) {
   if (buckets.length === 0) {
     return (
       <p className="text-[10px] text-muted-foreground italic">
-        No history yet — data accumulates as flows arrive
+        No history yet - data accumulates as flows arrive
       </p>
     )
   }

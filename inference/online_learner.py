@@ -1,10 +1,10 @@
-# online_learner.py — GaussianNB partial_fit on analyst feedback.
+# online_learner.py - GaussianNB partial_fit on analyst feedback.
 #
 # When an analyst corrects a label via the dashboard, the corrected flow
 # features are fed into a GaussianNB classifier that learns incrementally.
 # This provides a lightweight correction layer on top of the static pkl models.
 #
-# The online model is not used for primary inference — it supplements the
+# The online model is not used for primary inference; it supplements the
 # main classifier and its predictions are logged for analysis.
 
 import logging
@@ -24,8 +24,8 @@ class OnlineLearner:
     def update(self, features: list[float], label: str) -> None:
         """Incrementally train on a single corrected flow.
 
-        features — the same feature vector used for primary inference.
-        label    — the analyst-corrected class label string.
+        features: the same feature vector used for primary inference.
+        label:    the analyst-corrected class label string.
         """
         X = np.array([features], dtype=np.float64)
         y = np.array([label])

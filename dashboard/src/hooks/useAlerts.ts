@@ -1,5 +1,5 @@
-// useAlerts.ts — alert state with TCP/UDP split and a ring buffer capped at 5 000.
-// A larger ring keeps per-entity counts stable over longer monitoring sessions —
+// useAlerts.ts - alert state with TCP/UDP split and a ring buffer capped at 5 000.
+// A larger ring keeps per-entity counts stable over longer monitoring sessions;
 // at 500 the counts would visibly drop as old alerts were evicted, confusing
 // analysts who don't know about the cap.
 
@@ -53,7 +53,7 @@ export function useAlerts(): UseAlertsReturn {
       .then((r) => r.json())
       .then((flows: Alert[]) => {
         if (!flows.length) return
-        // History comes back newest-first — reverse so oldest is at the top,
+        // History comes back newest-first; reverse so oldest is at the top,
         // matching the live feed append order. Then split by protocol.
         const sorted = [...flows].reverse()
         const tcp = sorted.filter((f) => f.proto === 'TCP').slice(-RING_SIZE)
@@ -63,14 +63,14 @@ export function useAlerts(): UseAlertsReturn {
           ...s,
           tcp,
           udp,
-          // If we have stored flows, detection was already active — skip baselining
+          // If we have stored flows, detection was already active; skip baselining
           // banner and mark models as loaded so the status dot lights up correctly.
           baselining: false,
           modelsLoaded: true,
         }))
       })
       .catch(() => {
-        // History unavailable (first run, or inference not yet up) — silent
+        // History unavailable (first run, or inference not yet up) - silent
       })
   }, [])
 
@@ -105,7 +105,7 @@ export function useAlerts(): UseAlertsReturn {
     setState((s) => {
       const key = alert.proto === 'TCP' ? 'tcp' : 'udp'
       const prev = s[key]
-      // Ring buffer — drop oldest when full
+      // Ring buffer - drop oldest when full
       const next = prev.length >= RING_SIZE
         ? [...prev.slice(1), alert]
         : [...prev, alert]
