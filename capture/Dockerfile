@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     iproute2 \
     procps \
     tcpdump \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/capture

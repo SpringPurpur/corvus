@@ -72,7 +72,7 @@ export interface OifMetrics {
   rejection_rate: number   // n_rejected / n_seen - rises during active attacks
   score_p50:      number   // median composite score
   score_p95:      number   // 95th-percentile composite score
-  score_recent:   number[] // last ≤20 scores for sparkline
+  score_recent:   number[] // last <= 20 scores for sparkline
   ready:          boolean  // baseline complete
 }
 

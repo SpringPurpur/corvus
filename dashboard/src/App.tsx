@@ -48,7 +48,11 @@ function AppInner() {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Notification gate - don't fire for history loaded at startup
-  const notifyEnabledRef = useRef(false)
+  const notifyEnabledRef  = useRef(false)
+  // Cooldown: suppress burst notifications. After one fires, hold off for
+  // 10 s and show a single "N more" summary instead of N individual toasts.
+  const notifyCooldownRef = useRef(false)
+  const notifyQueuedRef   = useRef(0)
 
   const { theme } = useTheme()
 
@@ -135,11 +139,29 @@ function AppInner() {
       'Notification' in window &&
       Notification.permission === 'granted'
     ) {
-      new Notification('Corvus IDS - Critical Alert', {
-        body: `${msg.data.src_ip} → ${msg.data.dst_ip}:${msg.data.dst_port}  (score ${msg.data.verdict.score?.toFixed(2) ?? '?'})`,
-        icon: '/favicon.ico',
-        tag: msg.data.flow_id,   // collapse duplicates for same flow
-      })
+      if (!notifyCooldownRef.current) {
+        notifyCooldownRef.current = true
+        notifyQueuedRef.current   = 0
+        new Notification('Corvus IDS - Critical Alert', {
+          body: `${msg.data.src_ip} → ${msg.data.dst_ip}:${msg.data.dst_port}  (score ${msg.data.verdict.confidence?.toFixed(2) ?? '?'})`,
+          icon: '/favicon.ico',
+          tag:  'corvus-critical',
+        })
+        setTimeout(() => {
+          const queued = notifyQueuedRef.current
+          notifyCooldownRef.current = false
+          notifyQueuedRef.current   = 0
+          if (queued > 0) {
+            new Notification('Corvus IDS - Critical Alerts', {
+              body: `${queued} more critical alert${queued === 1 ? '' : 's'} while tab was in focus.`,
+              icon: '/favicon.ico',
+              tag:  'corvus-critical',
+            })
+          }
+        }, 10_000)
+      } else {
+        notifyQueuedRef.current += 1
+      }
     }
     handleMessage(msg)
   }
@@ -300,7 +322,6 @@ function AppInner() {
                 onSelect={setSelected}
                 showAll={showAll}
                 onToggleShowAll={() => setShowAll((v) => !v)}
-                entityFilter={entityFilter}
                 checked={checked}
                 onCheckedChange={setChecked}
                 onBulkDismiss={handleBulkDismiss}

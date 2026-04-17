@@ -5,7 +5,7 @@
 //
 // Each cell is coloured by the average OIF score in that bucket:
 //   green  → below HIGH threshold   (detector is calm)
-//   amber  → HIGH ≤ score < CRITICAL (elevated)
+//   amber  → HIGH <= score < CRITICAL (elevated)
 //   red    → CRITICAL or above       (active attack / high stress)
 //
 // The SVG uses preserveAspectRatio="none" so the column width self-adjusts to

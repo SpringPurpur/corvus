@@ -26,7 +26,6 @@ interface Props {
   onSelect:         (a: Alert) => void
   showAll:          boolean
   onToggleShowAll:  () => void
-  entityFilter:     string | null
   checked:          Set<string>
   onCheckedChange:  Dispatch<SetStateAction<Set<string>>>
   onBulkDismiss:    (flowIds: string[]) => void
@@ -39,7 +38,7 @@ interface Props {
 
 export function AlertFeed({
   alerts, selected, onSelect,
-  showAll, onToggleShowAll, entityFilter,
+  showAll, onToggleShowAll,
   checked, onCheckedChange, onBulkDismiss,
   paused, onTogglePause, newWhilePaused,
   searchQuery, onSearchChange,

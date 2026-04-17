@@ -121,6 +121,20 @@ if __name__ == "__main__":
     if args.build:
         compose_cmd.append("--build")
 
+    # Ensure capture.json exists as a file before docker compose up.
+    # If it is missing, Docker creates a directory at the bind-mount path,
+    # which causes [Errno 21] Is a directory when the inference engine tries
+    # to open it. An empty JSON object is a valid starting state.
+    capture_json = os.path.join(ROOT, "capture.json")
+    if not os.path.isfile(capture_json):
+        if os.path.isdir(capture_json):
+            import shutil
+            shutil.rmtree(capture_json)
+            print("[launch] Removed spurious capture.json directory.")
+        with open(capture_json, "w") as f:
+            f.write("{}\n")
+        print("[launch] Created capture.json.")
+
     mode = "IDS + testbed" if args.testbed else "IDS core"
     print(f"[launch] Starting Corvus {mode} ({'rebuilding images' if args.build else 'using existing images'})...")
 

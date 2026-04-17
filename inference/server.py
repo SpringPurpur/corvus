@@ -714,9 +714,11 @@ async def post_capture_config(body: CaptureConfigBody) -> dict:
             log.info("[capture] capture_engine signalled, waiting for restart")
 
             # 5. poll for new engine
-            # Poll every 0.5 s, up to 6 s total.
+            # Poll every 0.5 s, up to 12 s total.
+            # 12 s covers: engine exit (~0.5s) + restart loop sleep (5s) +
+            # interface selection + engine start + PID file write.
             engine = "failed"
-            for _ in range(12):
+            for _ in range(24):
                 _time.sleep(0.5)
                 r = container.exec_run(
                     ["sh", "-c",

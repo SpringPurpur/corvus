@@ -46,9 +46,9 @@ select_interface() {
 
     # Mode 0 - dashboard-configured via capture.json (highest priority)
     if [ -f /app/capture.json ]; then
-        CFG_IFACE=$(python3 -c \
-            "import json; d=json.load(open('/app/capture.json')); print(d.get('interface',''))" \
-            2>/dev/null || true)
+        CFG_IFACE=$(grep '"interface"' /app/capture.json \
+            | sed 's/.*"interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+            | head -1)
         if [ -n "$CFG_IFACE" ]; then
             if ip link show "$CFG_IFACE" &>/dev/null; then
                 echo "[monitor] Mode 0 - dashboard-configured: $CFG_IFACE" >&2
@@ -113,9 +113,10 @@ select_interface() {
 
 get_active_filter() {
     if [ -f /app/capture.json ]; then
-        CFG_FILTER=$(python3 -c \
-            "import json; d=json.load(open('/app/capture.json')); print(d.get('filter',''))" \
-            2>/dev/null || true)
+        CFG_FILTER=$(grep '"filter"' /app/capture.json \
+            | grep -v '"_status"' \
+            | sed 's/.*"filter"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+            | head -1)
         if [ -n "$CFG_FILTER" ]; then
             echo "$CFG_FILTER"
             return
@@ -133,18 +134,25 @@ get_active_filter() {
 write_status() {
     local iface="$1"
     local filter="$2"
-    python3 -c "
-import json, sys
-path = '/app/capture.json'
-try:
-    with open(path) as f:
-        d = json.load(f)
-except Exception:
-    d = {}
-d['_status'] = {'interface': sys.argv[1], 'filter': sys.argv[2]}
-with open(path, 'w') as f:
-    json.dump(d, f, indent=2)
-" "$iface" "$filter" 2>/dev/null || true
+    # Re-read config keys (interface, filter) so we preserve them while
+    # updating _status. Reconstruct the whole file — avoids JSON surgery.
+    local cfg_iface cfg_filter
+    cfg_iface=$(grep '"interface"' /app/capture.json 2>/dev/null \
+        | grep -v '"_status"' \
+        | sed 's/.*"interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+        | head -1)
+    cfg_filter=$(grep '"filter"' /app/capture.json 2>/dev/null \
+        | grep -v '"_status"' \
+        | sed 's/.*"filter"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+        | head -1)
+    {
+        echo '{'
+        [ -n "$cfg_iface"  ] && printf '  "interface": "%s",\n' "$cfg_iface"
+        [ -n "$cfg_filter" ] && printf '  "filter": "%s",\n'    "$cfg_filter"
+        printf '  "_status": {"interface": "%s", "filter": "%s"}\n' "$iface" "$filter"
+        echo '}'
+    } > /app/capture.json.tmp \
+        && mv /app/capture.json.tmp /app/capture.json 2>/dev/null || true
 }
 
 # Restart loop
