@@ -39,6 +39,12 @@ data/
 scenarios/old/
 scenarios/results/
 
+# Cython generated files
+inference/_array_tree.html
+
+# CMake / generic build output
+build/
+
 # IDE
 .vscode/settings.json
 .idea/
