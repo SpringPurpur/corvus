@@ -153,8 +153,15 @@ void flow_table_remove(flow_table_t *t, flow_record_t *flow)
         else
             displaced = (free_slot + FLOW_TABLE_SIZE - natural) < (next_slot - natural + FLOW_TABLE_SIZE);
 
-        if (!displaced)
-            break;
+        if (!displaced) {
+            // Not displaced — leave it in place, but keep scanning.
+            // A non-displaced entry from one chain does not terminate the
+            // repair: entries from other chains further ahead may still be
+            // displaced across the freed slot and unreachable without repair.
+            // Only an empty slot guarantees no chain crosses it.
+            next_slot = (next_slot + 1) & (FLOW_TABLE_SIZE - 1);
+            continue;
+        }
 
         // Move the entry back towards its natural slot
         t->slots[free_slot]    = t->slots[next_slot];

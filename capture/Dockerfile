@@ -1,27 +1,22 @@
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 
-# Avoid interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    make \
-    cmake \
-    nasm \
-    libpcap-dev \
-    libpcap0.8 \
-    gdb \
-    valgrind \
-    curl \
-    iproute2 \
-    procps \
-    tcpdump \
-    jq \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        make \
+        cmake \
+        nasm \
+        libpcap-dev \
+        libpcap0.8 \
+        curl \
+        iproute2 \
+        procps \
+        tcpdump \
+        jq
 
 WORKDIR /app/capture
 
-# start.sh is bind-mounted alongside the source at /app/capture/start.sh.
-# It builds the engine on first run (if no binary exists) then starts capture.
 CMD ["/bin/bash", "/app/capture/start.sh"]

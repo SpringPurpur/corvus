@@ -23,6 +23,9 @@
 #include <stdatomic.h>
 #include <time.h>
 
+// Returns current wall-clock time in nanoseconds.
+// CLOCK_REALTIME is the Unix epoch clock (matches Python time.time_ns()).
+// tv_sec = whole seconds since epoch, tv_nsec = fractional nanoseconds.
 static uint64_t _enqueue_ns(void)
 {
     struct timespec ts;
@@ -49,22 +52,37 @@ static int sock_fd = -1;
 
 static int connect_socket(void)
 {
+    // Close any previously open socket before creating a new one.
+    // A file descriptor is a kernel resource; leaking it would exhaust the
+    // process fd table after enough reconnect cycles.
     if (sock_fd >= 0) {
         close(sock_fd);
         sock_fd = -1;
     }
 
+    // AF_UNIX = Unix domain socket (local filesystem, not network).
+    // SOCK_STREAM = reliable, ordered, connection-oriented (like TCP but local).
+    // 0 = default protocol for this socket type.
+    // Returns a file descriptor (small integer) that represents the socket.
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
         perror("[ipc] socket()");
         return -1;
     }
 
+    // sockaddr_un is the address structure for Unix sockets.
+    // sun_path holds the filesystem path to the socket file.
+    // The Python server creates this file when it calls bind() + listen().
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, IPC_SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
+    // connect() initiates the TCP-style handshake to the listening server.
+    // Fails immediately (ECONNREFUSED) if Python has not called listen() yet.
+    // The sender thread calls us again after 100ms backoff until it succeeds.
+    // Cast to sockaddr* because connect() predates AF_UNIX and takes the
+    // generic base struct; the kernel dispatches on sun_family internally.
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(fd);
         return -1;
@@ -82,8 +100,13 @@ static int write_all(int fd, const void *buf, size_t n)
 {
     const uint8_t *p = buf;
     while (n > 0) {
+        // send() is like write() but for sockets and supports flags.
+        // It may return fewer bytes than requested (partial send) if the
+        // kernel socket buffer is nearly full - the loop retries the remainder.
+        // MSG_NOSIGNAL: if the peer closed the connection, return EPIPE as an
+        // error code instead of raising SIGPIPE, which would kill the process.
         ssize_t w = send(fd, p, n, MSG_NOSIGNAL);
-        if (w <= 0) return -1;
+        if (w <= 0) return -1;   // 0 = peer closed cleanly, <0 = error
         p += w;
         n -= (size_t)w;
     }
@@ -92,47 +115,64 @@ static int write_all(int fd, const void *buf, size_t n)
 
 /* --- sender thread --- */
 
+// sender_thread is the background thread that drains the ring buffer to the socket.
+// Signature is void *(*)(void *) because that is what pthread_create() requires;
+// the void* argument and return value are unused here.
 static void *sender_thread(void *arg)
 {
-    (void)arg;
+    (void)arg;   // suppress unused-parameter warning
     uint32_t payload_len = sizeof(flow_record_t);
 
+    // Keep running while the engine is active OR there are unsent flows in the ring.
+    // The second condition drains any remaining flows after ipc_writer_shutdown()
+    // sets running=0, so we don't lose the last flows on clean exit.
     while (atomic_load(&running) || atomic_load(&ring_head) != atomic_load(&ring_tail)) {
-        // Retry every 100ms until Python server is up
+        // Retry every 100ms until Python server is up.
+        // connect_socket() fails immediately if the socket file does not exist yet.
         while (sock_fd < 0 && atomic_load(&running)) {
             if (connect_socket() < 0)
-                usleep(100000);   // 100ms backoff
+                usleep(100000);   // 100ms backoff; usleep() suspends this thread only
         }
 
+        // Snapshot head and tail. head is written by the producer (enqueue),
+        // tail is written by us. Reading both atomically gives a consistent view.
         uint32_t head = atomic_load(&ring_head);
         uint32_t tail = atomic_load(&ring_tail);
 
         if (head == tail) {
-            // ring empty - yield without spinning
-            usleep(1000);   // 1ms
+            // Ring is empty. Sleep 1ms rather than spinning at 100% CPU.
+            // usleep() gives up the CPU; the OS wakes us after ~1ms.
+            usleep(1000);
             continue;
         }
 
-        // Send the flow at tail position
+        // Bitmask (capacity - 1) maps the ever-increasing tail counter to a slot
+        // index within [0, IPC_RING_CAPACITY). Works because capacity is a power of 2.
         uint32_t slot = tail & (IPC_RING_CAPACITY - 1);
         const flow_record_t *flow = &ring[slot];
 
-        // Two writes (length prefix then struct) - fine here, not the hot path
+        // Wire format: [uint32_t length][flow_record_t bytes].
+        // Python reads the 4-byte length first to know how many bytes follow.
         int err = write_all(sock_fd, &payload_len, sizeof(payload_len));
         if (err == 0)
             err = write_all(sock_fd, flow, sizeof(flow_record_t));
 
         if (err < 0) {
+            // Socket broke (Python restarted, container stopped, etc.).
+            // close() releases the fd; connect_socket() will reopen it next iteration.
             fprintf(stderr, "[ipc] send error, reconnecting...\n");
             close(sock_fd);
             sock_fd = -1;
-            // do not advance tail - retry this flow after reconnect
+            // Do not advance tail — retry sending this same flow after reconnect.
             continue;
         }
 
+        // Advance tail only after a confirmed successful send.
+        // This is safe without a mutex because only this thread writes ring_tail.
         atomic_store(&ring_tail, tail + 1);
     }
 
+    // Drain complete. Close the socket cleanly so Python sees EOF, not a reset.
     if (sock_fd >= 0) {
         close(sock_fd);
         sock_fd = -1;
@@ -151,18 +191,30 @@ void ipc_writer_init(void)
     pthread_t tid;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
+    // PTHREAD_CREATE_DETACHED means we will never call pthread_join() on this thread.
+    // The OS reclaims its resources automatically when it exits, so we do not need
+    // to hold a reference to tid after pthread_create(). Without this, not joining
+    // would leak a "zombie thread" entry in the thread table until process exit.
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    // Spawn the sender thread. It starts executing sender_thread(NULL) immediately.
+    // The NULL is the void* argument passed to sender_thread — unused here.
     pthread_create(&tid, &attr, sender_thread, NULL);
     pthread_attr_destroy(&attr);
 }
 
 void ipc_writer_enqueue(const flow_record_t *flow)
 {
+    // Called from the packet callback thread — must return immediately.
+    // No mutex, no malloc, no blocking calls.
     uint32_t head = atomic_load(&ring_head);
     uint32_t tail = atomic_load(&ring_tail);
 
     if (head - tail >= IPC_RING_CAPACITY) {
-        // ring full - drop oldest by advancing tail
+        // Ring is full. Overwrite the oldest unread slot by bumping tail forward,
+        // effectively evicting it. This keeps the ring always accepting new flows
+        // at the cost of losing the oldest one. The alternative — blocking the
+        // packet callback — would stall pcap and drop packets at the NIC level,
+        // which is worse than losing one completed flow record.
         atomic_store(&ring_tail, tail + 1);
         drops++;
         if (drops % 100 == 0)
@@ -170,15 +222,20 @@ void ipc_writer_enqueue(const flow_record_t *flow)
                     (unsigned long long)drops);
     }
 
+    // Bitmask maps head to a slot index. Same power-of-2 trick as in sender_thread.
     uint32_t slot = head & (IPC_RING_CAPACITY - 1);
     // Copy before updating head so the sender sees a complete record.
+    // If we incremented head first, the sender could read a half-written struct.
     ring[slot] = *flow;
     // Stamp enqueue time on the ring slot copy. This is the correct IPC-start
     // timestamp: t_socket_ns - t_enqueue_ns = actual wire+decode latency (~µs).
     // Using first_pkt_ns instead would include the full flow lifetime.
     ring[slot].t_enqueue_ns = _enqueue_ns();
-    // Atomic store with release semantics so the write above is visible
-    // to the sender thread before it reads the updated head
+    // memory_order_release pairs with the sender's atomic_load (acquire).
+    // It guarantees that all writes above (the memcpy and timestamp) are visible
+    // to the sender thread before it sees the incremented head value.
+    // Without this, the CPU or compiler could reorder the head increment before
+    // the copy, and the sender would read garbage from an incomplete slot.
     atomic_store_explicit(&ring_head, head + 1, memory_order_release);
 }
 

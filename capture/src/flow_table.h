@@ -12,7 +12,9 @@
 #include "packet_parser.h"
 
 // Power of 2; enables fast bitmask slot lookup instead of modulo.
-// 65536 slots × sizeof(flow_record_t) ≈ 1.7 GB; acceptable for a server.
+// 65536 slots × sizeof(flow_record_t) = 65536 × 6352 ≈ 393 MB; acceptable for a server.
+// 97% of that is the four accumulation buffers in flow_record_t (pkt_len_buf,
+// bwd_pkt_len_buf, fwd_iat_buf, all_iat_buf). All scalar feature fields fit in ~208 bytes.
 #define FLOW_TABLE_SIZE     65536
 
 // Flows with no packets for this many nanoseconds are expired.

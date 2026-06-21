@@ -168,18 +168,17 @@ while true; do
 
     ACTIVE_FILTER=$(get_active_filter)
 
-    FILTER_ARGS=""
+    FILTER_ARGS=()
     if [ -n "$ACTIVE_FILTER" ]; then
         echo "[monitor] BPF filter: $ACTIVE_FILTER"
-        FILTER_ARGS="-f $ACTIVE_FILTER"
+        FILTER_ARGS=(-f "$ACTIVE_FILTER")
     fi
 
     # Publish effective config so the dashboard can display it
     write_status "$IFACE" "$ACTIVE_FILTER"
 
     echo "[monitor] Starting capture on $IFACE..."
-    # shellcheck disable=SC2086
-    "$BINARY" -i "$IFACE" $FILTER_ARGS &
+    "$BINARY" -i "$IFACE" "${FILTER_ARGS[@]}" &
     CAPTURE_PID=$!
     echo "$CAPTURE_PID" > "$PID_FILE"
 
