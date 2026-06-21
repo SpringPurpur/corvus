@@ -284,8 +284,8 @@ def _phase(run_id, scenario, phase, t_start, t_end, attacker_ip=None):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default="data/flows_demo.db",
-                   help="Output SQLite path (default: data/flows_demo.db)")
+    p.add_argument("--out", default="data/flows.db",
+                   help="Output SQLite path (default: data/flows.db)")
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
 
