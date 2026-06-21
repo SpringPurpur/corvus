@@ -1,8 +1,9 @@
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        nginx openssh-server curl wget sshpass dnsutils ntpdate iputils-ping openssl \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        nginx openssh-server curl wget sshpass dnsutils ntpdate iputils-ping openssl
 
 # SSH: create user, enable password auth, generate host keys
 RUN useradd -m -s /bin/bash testuser \
@@ -27,7 +28,6 @@ RUN mkdir -p /etc/nginx/ssl \
 COPY victim_node/nginx.conf  /etc/nginx/sites-available/default
 COPY victim_node/start.sh   /start.sh
 COPY victim_node/traffic.sh /traffic.sh
-# fast_baseline.sh is invoked by run_scenario.py at /scripts/fast_baseline.sh
 RUN mkdir -p /scripts
 COPY clients/scripts/fast_baseline.sh /scripts/fast_baseline.sh
 RUN chmod +x /start.sh /traffic.sh /scripts/fast_baseline.sh

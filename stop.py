@@ -32,12 +32,12 @@ if __name__ == "__main__":
     subprocess.run(compose_cmd, check=True)
     print("[stop] Stack stopped.")
 
-    # Remove dangling images and build cache left behind by docker compose.
-    # This prevents the WSL2 virtual disk (ext4.vhdx) from growing unboundedly
-    # across repeated launch/stop cycles. Named volumes and bind mounts are
-    # not touched; models and SQLite data are preserved.
+    # Remove only dangling images (untagged intermediates) — not the build cache.
+    # The pip and apt cache mounts live in the BuildKit cache; pruning them would
+    # undo the fast-rebuild optimisation and force a full re-download on next build.
+    # Run `docker builder prune` manually if disk space becomes a concern.
     subprocess.run(
-        ["docker", "--context", "default", "system", "prune", "-f"],
-        check=False,   # non-fatal if prune finds nothing to remove
+        ["docker", "--context", "default", "image", "prune", "-f"],
+        check=False,
     )
-    print("[stop] Docker build cache and dangling images pruned.")
+    print("[stop] Dangling images pruned (build cache preserved).")

@@ -1,6 +1,8 @@
 FROM kalilinux/kali-rolling
 
-RUN apt-get update -q && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -q && apt-get install -y --no-install-recommends \
         hping3 \
         hydra \
         nmap \
@@ -13,8 +15,7 @@ RUN apt-get update -q && apt-get install -y --no-install-recommends \
         nghttp2-client \
         python3-pip \
     && gunzip -f /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true \
-    && pip3 install --break-system-packages h2 \
-    && rm -rf /var/lib/apt/lists/*
+    && pip3 install --break-system-packages --no-cache-dir h2
 
 COPY attacks/ /attacks/
 RUN chmod +x /attacks/*.sh
