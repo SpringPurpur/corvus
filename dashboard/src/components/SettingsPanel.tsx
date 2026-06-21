@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppConfig } from '../types'
-import { cn } from '../lib/utils'
+import { cn, apiFetch } from '../lib/utils'
 import { THEMES } from '../themes'
 import { useTheme } from '../context/ThemeContext'
 
@@ -52,7 +52,7 @@ export function SettingsPanel({ onClose }: Props) {
   const loadFeedback = useCallback(async () => {
     setFeedbackLoading(true)
     try {
-      const r = await fetch('/feedback')
+      const r = await apiFetch('/feedback')
       setFeedbackLog(await r.json())
     } catch { setFeedbackLog([]) }
     finally { setFeedbackLoading(false) }
@@ -74,7 +74,7 @@ export function SettingsPanel({ onClose }: Props) {
 
   const loadPhases = useCallback(async () => {
     try {
-      const r = await fetch('/phases')
+      const r = await apiFetch('/phases')
       setPhases(await r.json())
     } catch { /* leave stale */ }
   }, [])
@@ -84,7 +84,7 @@ export function SettingsPanel({ onClose }: Props) {
   const handleOpenPhase = useCallback(async () => {
     setPhaseBusy(true); setPhaseMsg(null)
     try {
-      const r = await fetch('/phases', {
+      const r = await apiFetch('/phases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -105,7 +105,7 @@ export function SettingsPanel({ onClose }: Props) {
     if (!activePhase) return
     setPhaseBusy(true); setPhaseMsg(null)
     try {
-      await fetch(`/phases/${activePhase.id}`, {
+      await apiFetch(`/phases/${activePhase.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ t_end: Date.now() / 1000 }),
@@ -142,7 +142,7 @@ export function SettingsPanel({ onClose }: Props) {
 
   // Load current config from inference engine on open
   useEffect(() => {
-    fetch('/config')
+    apiFetch('/config')
       .then((r) => r.json())
       .then((data: AppConfig) => setCfg(data))
       .catch(() => { /* leave defaults */ })
@@ -152,7 +152,7 @@ export function SettingsPanel({ onClose }: Props) {
   useEffect(() => {
     if (capFetchedRef.current) return
     capFetchedRef.current = true
-    fetch('/capture/interfaces')
+    apiFetch('/capture/interfaces')
       .then((r) => {
         if (!r.ok) return r.json().then((e) => { throw new Error(e.detail ?? `HTTP ${r.status}`) })
         return r.json()
@@ -172,7 +172,7 @@ export function SettingsPanel({ onClose }: Props) {
   // Poll system status every 5 s while the panel is open
   useEffect(() => {
     const fetchSys = () =>
-      fetch('/system/status')
+      apiFetch('/system/status')
         .then((r) => r.json())
         .then((d: SysStatus) => setSysStatus(d))
         .catch(() => {})
@@ -186,7 +186,7 @@ export function SettingsPanel({ onClose }: Props) {
     setSysAction(key)
     setSysMsg(null)
     try {
-      const r = await fetch(`/system/${container}/${action}`, { method: 'POST' })
+      const r = await apiFetch(`/system/${container}/${action}`, { method: 'POST' })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) {
         setSysMsgOk(false)
@@ -211,7 +211,7 @@ export function SettingsPanel({ onClose }: Props) {
     setCapApplying(true)
     setCapMsg(null)
     try {
-      const r = await fetch('/capture/config', {
+      const r = await apiFetch('/capture/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -254,7 +254,7 @@ export function SettingsPanel({ onClose }: Props) {
     setSaving(true)
     setSaveMsg(null)
     try {
-      const r = await fetch('/config', {
+      const r = await apiFetch('/config', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(cfg),
@@ -282,7 +282,7 @@ export function SettingsPanel({ onClose }: Props) {
     setFbState('running')
     setFbMsg(null)
     try {
-      const r = await fetch('/dev/fast-baseline', { method: 'POST' })
+      const r = await apiFetch('/dev/fast-baseline', { method: 'POST' })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) {
         setFbState('err')
@@ -305,7 +305,7 @@ export function SettingsPanel({ onClose }: Props) {
   const handleReset = useCallback(async (protocol: 'TCP' | 'UDP' | 'all') => {
     setResetting(protocol)
     try {
-      await fetch(`/baseline/reset?protocol=${protocol}`, { method: 'POST' })
+      await apiFetch(`/baseline/reset?protocol=${protocol}`, { method: 'POST' })
       // Reload so the alert feed clears and baselining indicator shows from scratch
       window.location.reload()
     } catch {

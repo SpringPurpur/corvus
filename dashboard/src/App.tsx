@@ -5,6 +5,7 @@ import { useAlerts }    from './hooks/useAlerts'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ThemeProvider }  from './context/ThemeContext'
 
+import { apiFetch } from './lib/utils'
 import { G3, alpha } from './components/grid/g3'
 import { GridContainer } from './components/grid/GridContainer'
 import { Module } from './components/grid/Module'
@@ -320,7 +321,7 @@ function AppInner() {
   // ── startup ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch('/config').then(r => {
+    apiFetch('/config').then(r => {
       if (r.status === 401) { setNeedsApiKey(true); return null }
       return r.json()
     }).then((d: AppConfig | null) => {
@@ -331,7 +332,7 @@ function AppInner() {
         setBaselineUdp(d.baseline_udp)
       }
     }).catch(() => {})
-    fetch('/llm/status').then(r => r.json()).then(d => setLlmReady(!!d.available)).catch(() => {})
+    apiFetch('/llm/status').then(r => r.json()).then(d => setLlmReady(!!d.available)).catch(() => {})
   }, [])
 
   useEffect(() => { loadHistory() }, [loadHistory])
@@ -500,14 +501,14 @@ function AppInner() {
             {allAlerts.length} flows
           </span>
           <button
-            onClick={() => fetch('/queue', { method: 'DELETE' }).catch(() => {})}
+            onClick={() => apiFetch('/queue', { method: 'DELETE' }).catch(() => {})}
             title="Drain inference queues"
             style={{ padding: '3px 9px', background: G3.card2, borderRadius: 5, color: G3.mute2, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 10 }}
           >
             Drain queue
           </button>
           <button
-            onClick={() => { fetch('/flows', { method: 'DELETE' }).catch(() => {}); clearAlerts(); setSelected(null) }}
+            onClick={() => { apiFetch('/flows', { method: 'DELETE' }).catch(() => {}); clearAlerts(); setSelected(null) }}
             style={{ padding: '3px 9px', background: G3.card2, borderRadius: 5, color: G3.mute2, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 10 }}
           >
             Clear logs

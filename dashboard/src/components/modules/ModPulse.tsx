@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { apiFetch } from '../../lib/utils'
 import { G3, sevCol } from '../grid/g3'
 import type { Alert } from '../../types'
 
@@ -29,8 +30,8 @@ export function ModPulse({ alerts }: Props) {
   // both protocols at every point in time.
   const fetchHistory = (since: number) =>
     Promise.all([
-      fetch(`/window_history?proto=TCP&bucket=30&since=${since}`).then(r => r.json()),
-      fetch(`/window_history?proto=UDP&bucket=30&since=${since}`).then(r => r.json()),
+      apiFetch(`/window_history?proto=TCP&bucket=30&since=${since}`).then(r => r.json()),
+      apiFetch(`/window_history?proto=UDP&bucket=30&since=${since}`).then(r => r.json()),
     ]).then(([tcp, udp]: [WindowBucket[], WindowBucket[]]) => {
       const map = new Map<number, WindowBucket>()
       for (const b of tcp) map.set(b.ts, b)

@@ -9,6 +9,7 @@
 // copies from O(alerts/s × RING_SIZE) to O(flushes/s × RING_SIZE).
 
 import { useCallback, useRef, useState } from 'react'
+import { apiFetch } from '../lib/utils'
 import type { Alert, OifMetrics, QueueDepth, WsMessage } from '../types'
 
 const RING_SIZE = 5_000
@@ -79,7 +80,7 @@ export function useAlerts(): UseAlertsReturn {
   }, [])
 
   const loadHistory = useCallback(() => {
-    fetch('/flows?limit=2000')
+    apiFetch('/flows?limit=2000')
       .then((r) => r.json())
       .then((flows: Alert[]) => {
         if (!flows.length) return
