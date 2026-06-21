@@ -1,12 +1,28 @@
-// useAlerts.ts - alert state with TCP/UDP split and a ring buffer capped at 5 000.
+// useAlerts.ts - alert state with TCP/UDP split and a ring capped at 5 000.
 // A larger ring keeps per-entity counts stable over longer monitoring sessions;
 // at 500 the counts would visibly drop as old alerts were evicted, confusing
 // analysts who don't know about the cap.
+//
+// Alerts arriving on the WebSocket are buffered in refs and flushed to React
+// state at most every FLUSH_MS milliseconds.  This coalesces rapid-fire alert
+// bursts (floods, scans) into a single setState per interval, reducing array
+// copies from O(alerts/s × RING_SIZE) to O(flushes/s × RING_SIZE).
 
 import { useCallback, useRef, useState } from 'react'
 import type { Alert, OifMetrics, QueueDepth, WsMessage } from '../types'
 
 const RING_SIZE = 5_000
+const FLUSH_MS  = 150    // flush pending alerts to state at most ~7×/s
+
+// Append a batch to the ring without creating an intermediate array.
+// If prev + batch fits, just spread both. Otherwise slice only the tail of
+// prev that fits alongside the batch, avoiding a double-allocation.
+function appendRing(prev: Alert[], batch: Alert[]): Alert[] {
+  const total = prev.length + batch.length
+  if (total <= RING_SIZE) return [...prev, ...batch]
+  const keep = RING_SIZE - batch.length
+  return keep > 0 ? [...prev.slice(-keep), ...batch] : batch.slice(-RING_SIZE)
+}
 
 const emptyMetrics: OifMetrics = {
   n_seen: 0, n_trained: 0, n_rejected: 0,
@@ -45,8 +61,22 @@ export function useAlerts(): UseAlertsReturn {
     queueDepth: { tcp: 0, udp: 0, flow: 0, total: 0 },
   })
 
-  // Track per-minute alert count using a sliding timestamp window
-  const tsWindowRef = useRef<number[]>([])
+  // Pending alert buffers — alerts accumulate here between flushes so that
+  // rapid-fire bursts produce a single setState rather than one per alert.
+  const pendingRef    = useRef<{ tcp: Alert[]; udp: Alert[] }>({ tcp: [], udp: [] })
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flush = useCallback(() => {
+    flushTimerRef.current = null
+    const { tcp, udp } = pendingRef.current
+    pendingRef.current = { tcp: [], udp: [] }
+    if (tcp.length === 0 && udp.length === 0) return
+    setState(s => ({
+      ...s,
+      tcp: tcp.length ? appendRing(s.tcp, tcp) : s.tcp,
+      udp: udp.length ? appendRing(s.udp, udp) : s.udp,
+    }))
+  }, [])
 
   const loadHistory = useCallback(() => {
     fetch('/flows?limit=2000')
@@ -58,15 +88,11 @@ export function useAlerts(): UseAlertsReturn {
         const sorted = [...flows].reverse()
         const tcp = sorted.filter((f) => f.proto === 'TCP').slice(-RING_SIZE)
         const udp = sorted.filter((f) => f.proto === 'UDP').slice(-RING_SIZE)
-        sorted.forEach((f) => tsWindowRef.current.push(f.ts))
         setState((s) => ({
           ...s,
           tcp,
           udp,
-          // If we have stored flows, detection was already active; skip baselining
-          // banner and mark models as loaded so the status dot lights up correctly.
           baselining: false,
-          modelsLoaded: true,
         }))
       })
       .catch(() => {
@@ -100,18 +126,11 @@ export function useAlerts(): UseAlertsReturn {
     if (msg.type !== 'alert') return
 
     const alert = msg.data
-    tsWindowRef.current.push(alert.ts)
+    if (alert.proto === 'TCP') pendingRef.current.tcp.push(alert)
+    else                        pendingRef.current.udp.push(alert)
 
-    setState((s) => {
-      const key = alert.proto === 'TCP' ? 'tcp' : 'udp'
-      const prev = s[key]
-      // Ring buffer - drop oldest when full
-      const next = prev.length >= RING_SIZE
-        ? [...prev.slice(1), alert]
-        : [...prev, alert]
-      // Detection active once first alert arrives
-      return { ...s, [key]: next, baselining: false }
-    })
+    if (!flushTimerRef.current)
+      flushTimerRef.current = setTimeout(flush, FLUSH_MS)
   }, [])
 
   const clearAlerts = useCallback(() => {

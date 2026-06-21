@@ -557,18 +557,27 @@ export function SettingsPanel({ onClose }: Props) {
               </label>
               <label className="flex flex-col gap-0.5">
                 <span className="text-[10px] text-muted-foreground">Scenario</span>
-                <input value={phaseScenario} onChange={e => setPhaseScenario(e.target.value)}
-                  className="bg-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-border"
-                  style={{ borderRadius: 'var(--radius)' }} />
+                <select value={phaseScenario} onChange={e => setPhaseScenario(e.target.value)}
+                  className="bg-muted px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-border"
+                  style={{ borderRadius: 'var(--radius)' }}>
+                  <option value="portscan">portscan — nmap sweep of target hosts</option>
+                  <option value="bruteforce">bruteforce — SSH / login credential spray</option>
+                  <option value="ddos">ddos — high-volume flood from attacker</option>
+                  <option value="exfiltration">exfiltration — large outbound data transfer</option>
+                  <option value="lateral_movement">lateral_movement — internal host-to-host pivoting</option>
+                  <option value="normal">normal — expected benign traffic baseline</option>
+                  <option value="custom">custom — see Run ID for details</option>
+                </select>
               </label>
               <label className="flex flex-col gap-0.5">
                 <span className="text-[10px] text-muted-foreground">Phase type</span>
                 <select value={phaseType} onChange={e => setPhaseType(e.target.value)}
                   className="bg-muted px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-border"
                   style={{ borderRadius: 'var(--radius)' }}>
-                  {['baseline', 'attack', 'benign', 'recovery'].map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
+                  <option value="baseline">baseline — no attack, establishing normal behaviour</option>
+                  <option value="attack">attack — active adversarial traffic in progress</option>
+                  <option value="benign">benign — scripted normal traffic alongside study</option>
+                  <option value="recovery">recovery — attack stopped, system returning to normal</option>
                 </select>
               </label>
               <label className="flex flex-col gap-0.5">
