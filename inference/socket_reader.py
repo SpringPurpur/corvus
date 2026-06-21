@@ -1,5 +1,6 @@
 # socket_reader.py - Unix socket server that receives flow_record_t structs
-# from the C capture engine and puts parsed dicts onto a queue.
+# from the C capture engine, decodes them, and routes them directly to the
+# per-protocol queues (TCP → tcp_queue, UDP → udp_queue).
 #
 # The C engine is the client; we own the socket file. Wire format:
 #   [uint32_t payload_len = sizeof(flow_record_t)][flow_record_t bytes]
@@ -132,46 +133,57 @@ def _ip_to_str(ip: int) -> str:
 
 
 def _record_to_dict(r: FlowRecord) -> dict[str, Any]:
-    """Convert a FlowRecord to a plain dict for the inference queue."""
+    """Convert a FlowRecord to a plain dict for the inference queue.
+
+    OIF feature origin legend (see online_detector.py for the feature lists):
+      [common]  — scored directly by both TCP and UDP OIF models
+      [TCP]     — scored directly by TCP OIF only
+      [UDP]     — scored directly by UDP OIF only
+      [→ TCP]   — raw field; online_detector computes a TCP OIF feature from it
+      [→ UDP]   — raw field; online_detector computes a UDP OIF feature from it
+      (no tag)  — not used for OIF scoring (identity, metadata, or legacy field)
+    """
     return {
+        # identity
         "src_ip":            _ip_to_str(r.key.src_ip),
         "dst_ip":            _ip_to_str(r.key.dst_ip),
         "src_port":          r.key.src_port,
         "dst_port":          r.key.dst_port,
         "protocol":          r.key.protocol,
-        "flow_duration_s":   r.flow_duration_s,
-        "init_fwd_win_bytes": r.init_fwd_win_bytes,
+        # common OIF features (scored by both TCP and UDP models)
+        "flow_duration_s":   r.flow_duration_s,   # [common]
+        "bwd_pkts_per_sec":  r.bwd_pkts_per_sec,  # [common]
+        "pkt_len_mean":      r.pkt_len_mean,       # [common]
+        "pkt_len_std":       r.pkt_len_std,        # [common]
+        "flow_iat_mean":     r.flow_iat_mean,      # [common] ns; converted → ms in online_detector
+        "fwd_iat_std":       r.fwd_iat_std,        # [common] ns; converted → ms in online_detector
+        "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,  # [common] derived at C finalisation
+        # TCP-only OIF features
+        "init_fwd_win_bytes": r.init_fwd_win_bytes, # [TCP]
+        "syn_flag_ratio":    r.syn_flag_ratio,      # [TCP] derived at C finalisation
+        "fwd_act_data_pkts": r.fwd_act_data_pkts,  # [→ TCP] online_detector computes fwd_act_data_ratio
+        "tot_fwd_pkts":      r.tot_fwd_pkts,        # [→ TCP] denominator for fwd_act_data_ratio
+        # UDP-only OIF features
+        "bwd_pkt_len_max":   r.bwd_pkt_len_max,    # [UDP]
+        "tot_bwd_bytes":     r.tot_bwd_bytes,       # [→ UDP] online_detector computes down_up_ratio
+        "tot_fwd_bytes":     r.tot_fwd_bytes,       # [→ UDP] denominator for down_up_ratio
+        # not used for OIF scoring
         "rst_flag_cnt":      r.rst_flag_cnt,
-        "bwd_pkts_per_sec":  r.bwd_pkts_per_sec,
-        "bwd_pkt_len_max":   r.bwd_pkt_len_max,
-        "tot_fwd_pkts":      r.tot_fwd_pkts,
-        "pkt_len_mean":      r.pkt_len_mean,
         "ack_flag_cnt":      r.ack_flag_cnt,
         "psh_flag_cnt":      r.psh_flag_cnt,
-        "pkt_len_std":       r.pkt_len_std,
+        "fin_flag_cnt":      r.fin_flag_cnt,
+        "syn_flag_cnt":      r.syn_flag_cnt,
+        "urg_flag_cnt":      r.urg_flag_cnt,
+        "psh_flag_ratio":    r.psh_flag_ratio,
         "bwd_pkt_len_std":   r.bwd_pkt_len_std,
-        "fwd_seg_size_min":  r.fwd_seg_size_min,
-        "fwd_act_data_pkts": r.fwd_act_data_pkts,
-        "tot_fwd_bytes":     r.tot_fwd_bytes,
-        "tot_bwd_bytes":     r.tot_bwd_bytes,
+        "bwd_pkt_len_mean":  r.bwd_pkt_len_mean,
         "fwd_pkt_len_max":   r.fwd_pkt_len_max,
-        "flow_iat_mean":     r.flow_iat_mean,
-        "fwd_iat_std":       r.fwd_iat_std,
+        "fwd_seg_size_min":  r.fwd_seg_size_min,
         "tot_bwd_pkts":      r.tot_bwd_pkts,
         "tot_pkts":          r.tot_pkts,
-        "syn_flag_cnt":      r.syn_flag_cnt,
-        "fin_flag_cnt":      r.fin_flag_cnt,
-        "urg_flag_cnt":      r.urg_flag_cnt,
-        "bwd_pkt_len_mean":  r.bwd_pkt_len_mean,
-        # derived fields computed at finalisation in features_finalise()
-        "fwd_pkts_per_sec":  r.fwd_pkts_per_sec,
-        "syn_flag_ratio":    r.syn_flag_ratio,
-        "psh_flag_ratio":    r.psh_flag_ratio,
-        # capture timestamps - nanoseconds since Unix epoch (C CLOCK_REALTIME)
+        # capture and IPC timing (nanoseconds, CLOCK_REALTIME)
         "first_pkt_ns":      r.first_pkt_ns,
         "last_pkt_ns":       r.last_pkt_ns,
-        # IPC ring enqueue time - set by ipc_writer_enqueue() after copying the
-        # flow into the ring buffer. t_socket_ns - t_enqueue_ns = true IPC latency.
         "t_enqueue_ns":      r.t_enqueue_ns,
     }
 
@@ -189,7 +201,11 @@ def _read_exactly(conn: socket.socket, n: int) -> bytes | None:
     return bytes(buf)
 
 
-def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
+def _handle_client(
+    conn: socket.socket,
+    tcp_queue: queue.Queue,
+    udp_queue: queue.Queue,
+) -> None:
     record = FlowRecord()
     record_size = ctypes.sizeof(FlowRecord)
 
@@ -227,13 +243,18 @@ def _handle_client(conn: socket.socket, out_queue: queue.Queue) -> None:
                  d["protocol"], d["src_ip"], d["src_port"],
                  d["dst_ip"], d["dst_port"], d["tot_pkts"])
 
-        out_queue.put(d)
+        proto = d.get("protocol")
+        if proto == 6:
+            tcp_queue.put(d)
+        elif proto == 17:
+            udp_queue.put(d)
+        # other protocols silently dropped; capture engine pre-filters to ip/tcp/udp
 
     log.debug("Capture engine disconnected")
 
 
-def run_socket_server(out_queue: queue.Queue) -> None:
-    """Bind the Unix socket, accept connections, push flow dicts onto out_queue.
+def run_socket_server(tcp_queue: queue.Queue, udp_queue: queue.Queue) -> None:
+    """Bind the Unix socket, accept connections, route decoded flows to protocol queues.
 
     Runs forever in the calling thread. Designed to be the target of a daemon thread.
     """
@@ -256,14 +277,20 @@ def run_socket_server(out_queue: queue.Queue) -> None:
         log.info("Capture engine connected")
         # each client gets its own thread; in practice only one capture engine
         # connects at a time, but this keeps the accept loop non-blocking
-        t = threading.Thread(target=_handle_client_safe, args=(conn, out_queue), daemon=True)
+        t = threading.Thread(
+            target=_handle_client_safe, args=(conn, tcp_queue, udp_queue), daemon=True
+        )
         t.start()
 
 
-def _handle_client_safe(conn: socket.socket, out_queue: queue.Queue) -> None:
+def _handle_client_safe(
+    conn: socket.socket,
+    tcp_queue: queue.Queue,
+    udp_queue: queue.Queue,
+) -> None:
     """Wrapper that logs any unhandled exception from _handle_client."""
     try:
-        _handle_client(conn, out_queue)
+        _handle_client(conn, tcp_queue, udp_queue)
     except Exception:
         log.exception("_handle_client crashed unexpectedly")
     finally:

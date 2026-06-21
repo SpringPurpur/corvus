@@ -4,10 +4,12 @@
 # for both TCP and UDP. Protocol-specific feature sets, triple-window scoring,
 # path-depth attribution, baselining period before detection starts.
 #
-# Legacy path: supervised ExtraTrees TCP classifier (extra_trees_tcp.pkl).
-# Kept for reference; not called - feature set no longer matches the struct
-# after fwd_pkts_per_sec / syn_flag_ratio / psh_flag_ratio were added.
+# ── LEGACY (not called) ──────────────────────────────────────────────────────
+# Supervised ExtraTrees TCP classifier (extra_trees_tcp.pkl) + batch
+# IsolationForest fallback. Feature set no longer matches the struct after
+# fwd_pkts_per_sec / syn_flag_ratio / psh_flag_ratio were added.
 # Re-enable when a retrained model is available.
+# ─────────────────────────────────────────────────────────────────────────────
 
 import logging
 import os
@@ -18,20 +20,20 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import shap
-from sklearn.ensemble import IsolationForest
 
+# ── LEGACY imports — only used by the supervised / batch-iso path ─────────────
 from feature_extractor import (
     TCP_FEATURE_NAMES, UDP_FEATURE_NAMES,
     extract_tcp, extract_udp,
 )
+# ─────────────────────────────────────────────────────────────────────────────
 from online_detector import process_flow as _if_process_flow, tcp_detector, udp_detector
 
 log = logging.getLogger(__name__)
 
 MODELS_DIR = Path(__file__).parent / "models"
 
-# severity maps
+# ── LEGACY — label → severity maps for supervised ExtraTrees output ───────────
 
 TCP_SEVERITY: dict[str, str] = {
     "Benign":                  "INFO",
@@ -55,6 +57,7 @@ UDP_SEVERITY: dict[str, str] = {
     "DDoS-HOIC":       "CRITICAL",
 }
 
+# ── LEGACY — pkl loader for supervised models ─────────────────────────────────
 
 def _load_pkl(name: str) -> Any:
     path = MODELS_DIR / name
@@ -66,20 +69,20 @@ def _load_pkl(name: str) -> Any:
     with open(path, "rb") as f:
         return pickle.load(f)
 
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class Classifier:
     def __init__(self, anomaly_only: bool = False) -> None:
         self.anomaly_only = anomaly_only
 
+        # ── LEGACY state — supervised ExtraTrees + batch IsolationForest ─────
         self._tcp_model     = None
         self._tcp_label_map: dict[int, str] = {}
         self._tcp_classes:   list[int] = []
         self._tcp_explainer  = None
 
-        # Prefer a pre-fitted IsolationForest from disk; fall back to
-        # fitting on the first 1000 flows seen. The fallback has a cold-start
-        # risk (early attacks look "normal") but is acceptable for demo use.
-        self._iso: IsolationForest | None = None
+        self._iso: Any = None  # batch IsolationForest once fitted
         self._iso_buffer: list[list[float]] = []
         self._iso_fitted = False
         self._ISO_FIT_THRESHOLD = 1000
@@ -88,6 +91,9 @@ class Classifier:
 
         if not anomaly_only:
             self._load_models()
+        # ─────────────────────────────────────────────────────────────────────
+
+    # ── LEGACY — batch IsolationForest loader ─────────────────────────────────
 
     def _load_iso(self) -> None:
         iso_path = MODELS_DIR / "isoforest.pkl"
@@ -100,7 +106,10 @@ class Classifier:
             log.info("No isoforest.pkl found - will fit on first %d flows",
                      self._ISO_FIT_THRESHOLD)
 
+    # ── LEGACY — supervised ExtraTrees loader ────────────────────────────────
+
     def _load_models(self) -> None:
+        import shap  # lazy: only needed for supervised classification path
         log.info("Loading TCP model...")
         tcp_bundle = _load_pkl("extra_trees_tcp.pkl")
         self._tcp_model     = tcp_bundle["model"]
@@ -115,10 +124,9 @@ class Classifier:
         self._tcp_explainer = shap.TreeExplainer(clf_step)
         log.info("TCP model loaded ✓  (UDP unsupervised component: pending)")
 
-    # IsolationForest
+    # ── LEGACY — batch IsolationForest scoring ────────────────────────────────
 
     def _iso_features(self, flow: dict) -> list[float]:
-        """Compact 4-feature vector used for anomaly scoring across protocols."""
         return [
             flow["pkt_len_mean"],
             flow["bwd_pkts_per_sec"],
@@ -127,15 +135,11 @@ class Classifier:
         ]
 
     def _update_iso(self, flow: dict) -> float:
-        """Update IsolationForest with a new flow and return the anomaly score.
-
-        Returns 0.0 until enough flows have been collected to fit the model.
-        Negative scores indicate anomalies (sklearn convention).
-        """
         feats = self._iso_features(flow)
         self._iso_buffer.append(feats)
 
         if not self._iso_fitted and len(self._iso_buffer) >= self._ISO_FIT_THRESHOLD:
+            from sklearn.ensemble import IsolationForest
             self._iso = IsolationForest(n_estimators=100, contamination=0.05,
                                         random_state=42)
             self._iso.fit(self._iso_buffer)
@@ -148,11 +152,10 @@ class Classifier:
 
         return 0.0
 
-    # SHAP
+    # ── LEGACY — SHAP for ExtraTrees ─────────────────────────────────────────
 
     def _top3_shap(self, explainer, feature_vector: np.ndarray,
                    feature_names: list[str]) -> list[list]:
-        """Return top-3 features by absolute SHAP value as compact triples."""
         try:
             shap_values = explainer.shap_values(feature_vector)
             # For multi-class, shap_values is a list of arrays (one per class).
@@ -175,7 +178,8 @@ class Classifier:
             log.warning("SHAP failed for this flow: %s", exc)
             return []
 
-    # public API
+    # ─────────────────────────────────────────────────────────────────────────
+    # Active path
 
     def predict(self, flow: dict) -> dict | None:
         """Run inference on a completed flow dict.
@@ -235,11 +239,10 @@ class Classifier:
             },
         }
 
-    # legacy supervised TCP path (not called - feature set mismatch)
+    # ── LEGACY — supervised ExtraTrees inference (not called — feature set mismatch)
     # Re-enable when extra_trees_tcp.pkl is retrained on the updated feature set.
 
     def _predict_supervised_tcp_legacy(self, flow: dict) -> dict:
-        """Supervised ExtraTrees classification. Kept for reference only."""
         vec        = extract_tcp(flow)
         proba      = self._tcp_model.predict_proba(vec)[0]
         best_idx   = int(np.argmax(proba))

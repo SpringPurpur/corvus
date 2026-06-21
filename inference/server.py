@@ -99,18 +99,16 @@ _alert_queue: asyncio.Queue | None = None
 # Thread queues exposed for /stats queue_depth - set by configure()
 _tcp_queue = None
 _udp_queue = None
-_flow_queue = None
 
 
 def configure(alert_queue: asyncio.Queue, llm_handler,
-              tcp_queue=None, udp_queue=None, flow_queue=None) -> None:
+              tcp_queue=None, udp_queue=None) -> None:
     """Called once from main.py before uvicorn starts."""
-    global _alert_queue, _llm_handler, _tcp_queue, _udp_queue, _flow_queue
+    global _alert_queue, _llm_handler, _tcp_queue, _udp_queue
     _alert_queue = alert_queue
     _llm_handler = llm_handler
     _tcp_queue   = tcp_queue
     _udp_queue   = udp_queue
-    _flow_queue  = flow_queue
 
 
 @app.get("/health")
@@ -186,17 +184,15 @@ async def reset_baseline(protocol: str = Query(default="all")) -> dict:
 @app.get("/stats")
 async def get_stats() -> dict:
     from online_detector import tcp_detector, udp_detector
-    tcp_q = _tcp_queue.qsize()  if _tcp_queue  is not None else None
-    udp_q = _udp_queue.qsize()  if _udp_queue  is not None else None
-    flow_q = _flow_queue.qsize() if _flow_queue is not None else None
+    tcp_q = _tcp_queue.qsize() if _tcp_queue is not None else None
+    udp_q = _udp_queue.qsize() if _udp_queue is not None else None
     return {
         "tcp":  tcp_detector.metrics()  | {"ready": tcp_detector.is_ready},
         "udp":  udp_detector.metrics()  | {"ready": udp_detector.is_ready},
         "queue_depth": {
-            "tcp":  tcp_q,
-            "udp":  udp_q,
-            "flow": flow_q,
-            "total": (tcp_q or 0) + (udp_q or 0) + (flow_q or 0),
+            "tcp":   tcp_q,
+            "udp":   udp_q,
+            "total": (tcp_q or 0) + (udp_q or 0),
         },
     }
 
@@ -370,7 +366,7 @@ async def drain_queue() -> dict:
         return n
 
     n = await run_in_threadpool(
-        lambda: _drain(_flow_queue) + _drain(_tcp_queue) + _drain(_udp_queue)
+        lambda: _drain(_tcp_queue) + _drain(_udp_queue)
     )
     log.info("Queue drained: %d flows discarded", n)
     return {"drained": n}

@@ -1,4 +1,4 @@
-# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3
+# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3, freethreading_compatible=True
 """
 _array_tree.pyx — compiled hot paths for _ArrayTree.
 
@@ -11,7 +11,9 @@ _ArrayTree.attribute_path in online_detector.py.
 
 The Python class structure and pickling stay in online_detector.py.
 These are pure C-level helpers — no Python objects are allocated in
-the hot paths, no GIL is required inside the loops.
+the hot paths. Both functions release the GIL (with nogil:) during
+the traversal loop, allowing the TCP and UDP workers to run their
+tree traversals concurrently at the C layer.
 
 Design rationale:
   The original Python loops call int() on each numpy scalar index
@@ -38,7 +40,7 @@ def score_one_cy(
     int                  root,
     cnp.float64_t[:]    x,
     int                  max_leaf_samples,
-) -> double:
+):
     """Traverse one isolation tree and return path depth + leaf correction.
 
     Parameters mirror _ArrayTree's node arrays plus the root index and
@@ -55,15 +57,16 @@ def score_one_cy(
     if root < 0:
         return 0.0
 
-    while feat_idx[node] >= 0:
-        fi = feat_idx[node]
-        if x[fi] < threshold[node]:
-            node = left_ch[node]
-        else:
-            node = right_ch[node]
-        depth += 1
+    with nogil:
+        while feat_idx[node] >= 0:
+            fi = feat_idx[node]
+            if x[fi] < threshold[node]:
+                node = left_ch[node]
+            else:
+                node = right_ch[node]
+            depth += 1
+        leaf_h = h[node]
 
-    leaf_h = h[node]
     if leaf_h <= max_leaf_samples:
         return <double>depth
     return <double>depth + log2(<double>leaf_h / <double>max_leaf_samples)
@@ -91,11 +94,12 @@ def attribute_path_cy(
     if root < 0:
         return
 
-    while feat_idx[node] >= 0:
-        fi = feat_idx[node]
-        feat_scores[fi] += model_weight / (depth + 1)
-        if x[fi] < threshold[node]:
-            node = left_ch[node]
-        else:
-            node = right_ch[node]
-        depth += 1
+    with nogil:
+        while feat_idx[node] >= 0:
+            fi = feat_idx[node]
+            feat_scores[fi] += model_weight / (depth + 1)
+            if x[fi] < threshold[node]:
+                node = left_ch[node]
+            else:
+                node = right_ch[node]
+            depth += 1

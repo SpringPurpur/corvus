@@ -26,6 +26,14 @@ def init_db() -> None:
     """Open (or create) the database and apply the schema."""
     global _conn
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Delete stale .db-shm before connecting. SQLite recreates it on first open;
+    # a file left by a different OS (e.g. Windows host bind-mounted into a Linux
+    # container) uses incompatible lock semantics and causes a C-level crash
+    # before Python can raise an exception.
+    shm = Path(str(DB_PATH) + "-shm")
+    if shm.exists():
+        shm.unlink()
+        log.info("Removed stale WAL shared-memory file %s", shm)
     _conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
 
     # WAL allows concurrent reads from the FastAPI thread while the inference

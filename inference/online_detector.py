@@ -102,17 +102,6 @@ def _extract(flow: dict, features: list[tuple[str, callable]]) -> np.ndarray:
     return np.array([fn(flow) for _, fn in features], dtype=np.float64)
 
 
-# pickle compatibility stubs
-# Saved models from the linked-node era contain _OIFNode / OnlineIsolationTree
-# objects. Keep empty stubs so pickle can deserialise the old files without
-# crashing; MultiWindowOIF._compatible_with() rejects them via _TREE_VERSION.
-
-class _OIFNode:
-    """Compatibility stub - old linked-node format. Not used by new code."""
-
-class OnlineIsolationTree:
-    """Compatibility stub - old linked-node format. Not used by new code."""
-
 
 # array-based Online Isolation Tree
 
@@ -301,8 +290,29 @@ class _ArrayTree:
             node = int(self._left[node]) if x[fi] < self._threshold[node] \
                    else int(self._right[node])
 
-        # phase 2: reached the leaf - decrement and update bounding boxes bottom-up
-        self._h[node] -= 1
+        # phase 2: reached the leaf - decrement h and tighten box using tree constraints
+        leaf = node
+        self._h[leaf] -= 1
+
+        # Tighten the leaf's bounding box using structural path constraints.
+        # Each ancestor split (feature q, threshold thr) is a hard constraint on
+        # the leaf's data range — samples are always routed deterministically, so
+        # the left subtree can only contain values x[q] < thr (max[q] ≤ thr) and
+        # the right subtree can only contain values x[q] ≥ thr (min[q] ≥ thr).
+        # Without storing the full sample set we cannot compute the exact new
+        # min/max after an unlearn, but we can apply these structural bounds.
+        # This prevents extreme unlearned samples from permanently widening the
+        # leaf box and degrading future _split() threshold sampling.
+        for p in path:
+            q   = int(self._feat_idx[p])
+            thr = float(self._threshold[p])
+            if x[q] < thr:
+                if self._max_val[leaf, q] > thr:
+                    self._max_val[leaf, q] = thr
+            else:
+                if self._min_val[leaf, q] < thr:
+                    self._min_val[leaf, q] = thr
+
         for p in reversed(path):
             l = int(self._left[p]);  r = int(self._right[p])
             np.minimum(self._min_val[l], self._min_val[r], out=self._min_val[p])
@@ -807,9 +817,10 @@ def _load_or_create(
                           baseline_flows=baseline_flows, save_path=path)
 
 
-tcp_detector = _load_or_create(TCP_IF_FEATURE_NAMES, "TCP", "tcp_oif.pkl")
+tcp_detector = _load_or_create(TCP_IF_FEATURE_NAMES, "TCP", "tcp_oif.pkl",
+                               baseline_flows=_cfg_module.cfg.baseline_tcp)
 udp_detector = _load_or_create(UDP_IF_FEATURE_NAMES, "UDP", "udp_oif.pkl",
-                                baseline_flows=_cfg_module.cfg.baseline_udp)
+                               baseline_flows=_cfg_module.cfg.baseline_udp)
 
 
 def reset_detector(protocol: str) -> None:

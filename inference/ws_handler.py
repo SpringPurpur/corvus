@@ -177,15 +177,22 @@ async def _handle_llm_request(
             alert = payload.get("alert", {})
             analyst_text = payload.get("analyst_text", "")
             result = await llm_handler.parse_feedback(alert, analyst_text)
+            flow_id   = alert.get("flow_id", "")
+            dismiss   = bool(result.get("dismiss", False))
+            corrected = result.get("corrected_label")
             import storage
+            from online_detector import feedback_reinforce
             storage.upsert_feedback(
-                flow_id=alert.get("flow_id", ""),
+                flow_id=flow_id,
                 ts=time.time(),
-                corrected_label=result.get("corrected_label"),
-                dismiss=bool(result.get("dismiss", False)),
+                corrected_label=corrected,
+                dismiss=dismiss,
                 reason=result.get("reason", ""),
                 analyst_text=analyst_text,
             )
+            if dismiss or corrected == "INFO":
+                applied = feedback_reinforce(flow_id, dismiss=True)
+                log.info("LLM FP feedback reinforce flow_id=%s applied=%s", flow_id, applied)
             text = json.dumps(result)
         else:
             text = f"Unknown function: {fn_name}"
