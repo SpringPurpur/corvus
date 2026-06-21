@@ -118,7 +118,6 @@ static void packet_callback(u_char *user, const struct pcap_pkthdr *hdr,
     }
 
     // flow completion detection
-    // Check for RST first (immediate) then FIN (include the FIN packet)
     if (pkt.protocol == 6) {
         uint8_t flags = pkt.tcp_flags;
 
@@ -168,11 +167,22 @@ int main(int argc, char *argv[])
     ipc_writer_init();
 
     // open pcap
+    // Use the create/set/activate path so we can raise the kernel ring buffer
+    // from the 2 MB default to 32 MB.  During attack scenarios (SYN floods,
+    // port scans) packet bursts can exceed 50 kpps; the default buffer fills
+    // in under 1 ms and pcap silently drops packets before the BPF filter.
     char errbuf[PCAP_ERRBUF_SIZE];
-    g_pcap = pcap_open_live(iface, 65535, 1 /*promisc*/, 1000 /*ms timeout*/,
-                             errbuf);
+    g_pcap = pcap_create(iface, errbuf);
     if (!g_pcap) {
-        fprintf(stderr, "[capture] pcap_open_live: %s\n", errbuf);
+        fprintf(stderr, "[capture] pcap_create: %s\n", errbuf);
+        return 1;
+    }
+    pcap_set_snaplen(g_pcap, 65535);
+    pcap_set_promisc(g_pcap, 1);
+    pcap_set_timeout(g_pcap, 1000);
+    pcap_set_buffer_size(g_pcap, 32 * 1024 * 1024);  // 32 MB kernel ring buffer
+    if (pcap_activate(g_pcap) != 0) {
+        fprintf(stderr, "[capture] pcap_activate: %s\n", pcap_geterr(g_pcap));
         return 1;
     }
 
