@@ -24,11 +24,12 @@ MY_IP=$(hostname -I | awk '{print $1}')
 TARGETS=$(echo "$NODES" | tr ' ' '\n' | grep -vF "${MY_IP}" | paste -sd ' ')
 [ -z "$TARGETS" ] && TARGETS="$NODES"   # fallback if hostname -I fails
 
-TCP_COUNT=${1:-820}    # 820 flows per node × 5 nodes = 4100 through-bridge flows;
-                       # ~5-10% filtered by tot_pkts<4 → ~3900-4000 reach OIF.
-                       # Slightly under the 4096 target so we don't overshoot into
-                       # the attack window. normal_traffic.sh supplies the last ~100.
-UDP_COUNT=${2:-250}    # ~250 flows per node × 5 nodes > 1024 UDP baseline
+TCP_COUNT=${1:-920}    # 920 flows per node × 5 nodes = 4600 through-bridge flows;
+                       # ~5-10% filtered by tot_pkts<4 → ~4140 reach OIF > 4096.
+UDP_COUNT=${2:-250}    # 250 flows per node × 5 nodes = 1250 UDP queries;
+                       # a sleep 35 after the loop lets the C flow_table flush
+                       # all UDP flows (30 s inactivity timeout) before the
+                       # script exits, so all 1250 reach OIF in one trigger.
 SSH_COUNT=${3:-20}     # 20 SSH sessions per node × 5 nodes = 100 SSH flows in the
                        # initial training set. Without this, the first 4096 flows
                        # are 100% HTTP, SSH flow_duration_s and init_fwd_win_bytes
@@ -93,7 +94,9 @@ log "Starting - TCP: $TCP_COUNT HTTP, SSH: $SSH_COUNT, UDP: $UDP_COUNT DNS (per 
         if (( i % 50 == 0 )); then log "UDP: $i / $UDP_COUNT"; fi
         sleep 0.1   # ~10 DNS queries/s - don't overwhelm dnsmasq
     done
-    log "UDP done - $UDP_COUNT flows sent."
+    log "UDP queries sent - waiting 35 s for flow_table to flush..."
+    sleep 35
+    log "UDP done - $UDP_COUNT flows exported."
 ) &
 
 # SSH: sequential sessions (~1-2s each), runs in parallel with TCP/UDP loops.
