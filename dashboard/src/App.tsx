@@ -22,18 +22,19 @@ import { ModTimeline }  from './components/modules/ModTimeline'
 import { ModHeatmap }   from './components/modules/ModHeatmap'
 import { ModConsensus } from './components/modules/ModConsensus'
 import { ModTopology }  from './components/modules/ModTopology'
+import { ModTree }      from './components/modules/ModTree'
 
 // ─── module registry ────────────────────────────────────────────────────────
 
 type ModuleId =
   | 'kpi' | 'pulse' | 'health' | 'entities'
   | 'stream' | 'detail' | 'llm'
-  | 'timeline' | 'heatmap' | 'consensus' | 'topology'
+  | 'timeline' | 'heatmap' | 'consensus' | 'topology' | 'tree'
 
 const ALL_IDS: ModuleId[] = [
   'kpi', 'pulse', 'health', 'entities',
   'stream', 'detail', 'llm',
-  'timeline', 'heatmap', 'consensus', 'topology',
+  'timeline', 'heatmap', 'consensus', 'topology', 'tree',
 ]
 
 const CONSTRAINTS: Record<ModuleId, ModuleConstraint> = {
@@ -48,6 +49,7 @@ const CONSTRAINTS: Record<ModuleId, ModuleConstraint> = {
   heatmap:   { min: { cols: 4, rows: 1 }, max: { cols: 12, rows: 3 } },
   consensus: { min: { cols: 3, rows: 2 }, max: { cols: 8,  rows: 4 } },
   topology:  { min: { cols: 3, rows: 2 }, max: { cols: 8,  rows: 5 } },
+  tree:      { min: { cols: 4, rows: 3 }, max: { cols: 12, rows: 7 } },
 }
 
 const DEFAULT_SIZES: Record<ModuleId, ModuleSize> = {
@@ -62,18 +64,19 @@ const DEFAULT_SIZES: Record<ModuleId, ModuleSize> = {
   heatmap:   { cols: 12, rows: 2 },
   consensus: { cols: 4,  rows: 2 },
   topology:  { cols: 4,  rows: 3 },
+  tree:      { cols: 6,  rows: 4 },
 }
 
 const DEFAULT_ORDER: ModuleId[] = [
   'kpi',
   'pulse', 'health', 'entities',
   'stream', 'detail', 'llm',
-  'consensus', 'topology', 'timeline',
+  'consensus', 'topology', 'tree', 'timeline',
   'heatmap',
 ]
 
-// topology and consensus are hidden by default to keep the initial view clean
-const DEFAULT_HIDDEN = new Set<ModuleId>(['topology', 'consensus'])
+// topology, consensus, tree are hidden by default to keep the initial view clean
+const DEFAULT_HIDDEN = new Set<ModuleId>(['topology', 'consensus', 'tree'])
 
 // Accumulated LLM responses keyed by request_id — grows per session, stable ref
 const llmResponses: Record<string, string> = {}
@@ -151,6 +154,11 @@ const MODULE_META: Record<ModuleId, ModuleMeta> = {
     title:    'Network topology',
     subtitle: 'flow graph · hover to highlight connections',
     about:    'Visualises network flows as a graph. The most active IP addresses (up to 16) are placed in a circle; edges connect source → destination pairs seen in the ingested flows. Node radius scales logarithmically with alert count; node and edge colour encode peak severity (cyan = mixed, amber = HIGH, red = CRITICAL). Edge opacity scales with flow count between that pair. Hover a node to dim all unrelated edges and highlight that host\'s direct connections. Abbreviated labels show the last two octets of each IPv4 address.',
+  },
+  tree: {
+    title:    'OIF tree viewer',
+    subtitle: 'live isolation tree · scroll to zoom · drag to pan',
+    about:    'Renders a single decision tree from the Online Isolation Forest in real-time. Select protocol (TCP/UDP), window size (Fast 256 / Medium 1 024 / Slow 4 096), tree index (0–31), and max depth (1–7). The tree polls /dev/tree_snapshot every 3 s but only re-renders when n_trained changes, so there is no visual flicker during idle periods. Blue nodes are internal split nodes (feature name + split threshold + sample count); green nodes are leaves. Branch labels ≤ (green) and > (red) indicate the split direction. Scroll to zoom, drag to pan.',
   },
 }
 
@@ -617,6 +625,7 @@ function AppInner() {
                 {id === 'heatmap'   && <ModHeatmap   alerts={allAlerts} />}
                 {id === 'consensus' && <ModConsensus alerts={allAlerts} thHigh={thHigh} thCrit={thCrit} />}
                 {id === 'topology'  && <ModTopology  alerts={allAlerts} />}
+                {id === 'tree'      && <ModTree />}
               </Module>
             )
           })}

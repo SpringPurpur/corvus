@@ -92,3 +92,10 @@ html[data-theme="terminal"] [data-active-tab] {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+
+/* OIF tree viewer — react-d3-tree link styling */
+.oif-link {
+  stroke: #374151;
+  stroke-width: 1.5px;
+  fill: none;
+}
