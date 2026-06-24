@@ -424,6 +424,66 @@ async def dev_fast_baseline() -> dict:
         raise HTTPException(500, str(exc))
 
 
+@app.get("/dev/tree_snapshot")
+async def dev_tree_snapshot(
+    proto:     str = "TCP",
+    model:     int = 2,      # 0=fast(256), 1=medium(1024), 2=slow(4096)
+    tree:      int = 0,
+    max_depth: int = 4,
+) -> dict:
+    """Return a JSON subtree (up to max_depth levels) from a live OIF tree.
+
+    Intended for visualisation tools (tools/render_tree.py).  Read-only;
+    the GIL protects the numpy array reads from the worker thread.
+    """
+    from online_detector import tcp_detector, udp_detector, MultiWindowOIF
+
+    det = tcp_detector if proto.upper() == "TCP" else udp_detector
+    if det is None:
+        raise HTTPException(503, "Detector not initialised")
+    if model not in (0, 1, 2):
+        raise HTTPException(400, "model must be 0, 1 or 2")
+
+    oif = det._models[model]
+    if tree >= len(oif._trees):
+        raise HTTPException(400, f"tree {tree} out of range (n_trees={len(oif._trees)})")
+
+    t = oif._trees[tree]
+    if t._root < 0:
+        raise HTTPException(503, "Tree not yet initialised — baseline not complete")
+
+    feat_names = oif.feature_names
+
+    def _dump(node_id: int) -> dict:
+        if node_id < 0:
+            return {"type": "leaf", "samples": 0}
+        h  = int(t._h[node_id])
+        d  = int(t._depth[node_id])
+        fi = int(t._feat_idx[node_id])
+        if fi < 0 or d >= max_depth:
+            return {"type": "leaf", "samples": h, "depth": d}
+        return {
+            "type":      "split",
+            "node_id":   node_id,
+            "feature":   feat_names[fi],
+            "threshold": round(float(t._threshold[node_id]), 6),
+            "samples":   h,
+            "depth":     d,
+            "left":      _dump(int(t._left[node_id])),
+            "right":     _dump(int(t._right[node_id])),
+        }
+
+    return {
+        "proto":       proto.upper(),
+        "model":       model,
+        "window_size": MultiWindowOIF._WINDOWS[model],
+        "tree_index":  tree,
+        "max_depth":   max_depth,
+        "n_trained":   det._n_trained,
+        "tree":        _dump(t._root),
+    }
+
+
 @app.get("/export/flows.ndjson")
 async def export_flows_ndjson() -> StreamingResponse:
     """Stream all flow records as NDJSON (one JSON object per line).
