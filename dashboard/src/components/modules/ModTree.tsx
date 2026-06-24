@@ -163,7 +163,7 @@ export function ModTree() {
 
   const nTrainedRef  = useRef(-1)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [translate,  setTranslate] = useState({ x: 240, y: 70 })
+  const [translate,  setTranslate] = useState({ x: 240, y: 90 })
 
   // Center tree horizontally whenever container width changes
   useEffect(() => {
@@ -171,7 +171,7 @@ export function ModTree() {
     if (!el) return
     const obs = new ResizeObserver(entries => {
       const w = entries[0].contentRect.width
-      setTranslate(t => ({ ...t, x: w / 2 }))
+      setTranslate(t => ({ x: w / 2, y: t.y }))
     })
     obs.observe(el)
     return () => obs.disconnect()
@@ -334,8 +334,8 @@ export function ModTree() {
             translate={translate}
             zoom={0.85}
             scaleExtent={{ min: 0.2, max: 3 }}
-            nodeSize={{ x: 140, y: 100 }}
-            separation={{ siblings: 1.1, nonSiblings: 1.4 }}
+            nodeSize={{ x: 150, y: 110 }}
+            separation={{ siblings: 1.2, nonSiblings: 2.2 }}
             renderCustomNodeElement={renderNode}
             pathClassFunc={() => 'oif-link'}
             enableLegacyTransitions
