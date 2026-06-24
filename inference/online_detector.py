@@ -37,7 +37,46 @@ from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
-from sklearn.preprocessing import RobustScaler
+
+
+class _RobustScaler:
+    """Pure-numpy drop-in for sklearn.preprocessing.RobustScaler.
+
+    Exposes center_ / scale_ so pickled MultiWindowOIF objects that were
+    serialised with the sklearn version load transparently (see shim below).
+    """
+
+    def __init__(self) -> None:
+        self.center_: np.ndarray | None = None
+        self.scale_:  np.ndarray | None = None
+
+    def fit(self, X: np.ndarray) -> '_RobustScaler':
+        self.center_ = np.median(X, axis=0)
+        q75 = np.percentile(X, 75, axis=0)
+        q25 = np.percentile(X, 25, axis=0)
+        self.scale_  = q75 - q25
+        self.scale_[self.scale_ == 0] = 1.0   # match sklearn: zero-IQR → no scaling
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return (X - self.center_) / self.scale_
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+
+class _CompatUnpickler(pickle.Unpickler):
+    """Redirects sklearn.preprocessing.RobustScaler → _RobustScaler.
+
+    pkl files saved when sklearn was installed store the scaler under its
+    internal module path (sklearn.preprocessing._data.RobustScaler in some
+    versions).  This unpickler intercepts those lookups so the files load
+    without sklearn being present.
+    """
+    def find_class(self, module: str, name: str):
+        if name == 'RobustScaler' and module.startswith('sklearn'):
+            return _RobustScaler
+        return super().find_class(module, name)
 
 import config as _cfg_module
 
@@ -521,7 +560,7 @@ class MultiWindowOIF:
             for i, w in enumerate(self._WINDOWS)
         ]
 
-        self._scaler        = RobustScaler()
+        self._scaler        = _RobustScaler()
         self._scaler_fitted = False
 
         self._baseline_buffer:   list[np.ndarray] = []
@@ -612,7 +651,7 @@ class MultiWindowOIF:
     @classmethod
     def load(cls, path: str | Path) -> "MultiWindowOIF":
         with open(path, "rb") as f:
-            obj = pickle.load(f)
+            obj = _CompatUnpickler(f).load()
         if not isinstance(obj, cls):
             raise TypeError(f"Expected MultiWindowOIF, got {type(obj)}")
         return obj
