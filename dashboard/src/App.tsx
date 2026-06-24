@@ -280,8 +280,11 @@ function AppInner() {
       const s = localStorage.getItem('corvus-grid-v1')
       if (s) {
         const p = JSON.parse(s)
-        if (Array.isArray(p.order) && p.order.every((x: unknown) => ALL_IDS.includes(x as ModuleId)))
-          return p.order as ModuleId[]
+        if (Array.isArray(p.order) && p.order.every((x: unknown) => ALL_IDS.includes(x as ModuleId))) {
+          const saved   = p.order as ModuleId[]
+          const missing = DEFAULT_ORDER.filter(id => !saved.includes(id))
+          return missing.length ? [...saved, ...missing] : saved
+        }
       }
     } catch { /* ignore */ }
     return DEFAULT_ORDER
