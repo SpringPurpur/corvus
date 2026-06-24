@@ -21,7 +21,7 @@ FROM debian:bookworm-slim
 # ca-certificates needed for Rust/cargo to reach crates.io when building
 # packages without pre-built wheels (pydantic-core, cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl ca-certificates \
+        build-essential curl ca-certificates gfortran \
         libssl3 libbz2-1.0 libffi8 zlib1g libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
