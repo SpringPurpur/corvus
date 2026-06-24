@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """render_tree.py - Render an OIF tree from a saved pkl file or live endpoint.
 
-Usage (pkl — no app needed):
-    python tools/render_tree.py --pkl inference/models/tcp_oif.pkl
-    python tools/render_tree.py --pkl inference/models/udp_oif.pkl --model 1 --tree 3
+Usage (interactive — guided selection from pkl):
+    python tools/render_tree.py --pkl inference/models/tcp_oif.pkl -i
+
+Usage (non-interactive pkl):
+    python tools/render_tree.py --pkl inference/models/tcp_oif.pkl [--model 2] [--tree 0] [--depth 4]
 
 Usage (live endpoint — app must be running):
     python tools/render_tree.py --proto TCP --model 2 --tree 0
 
-Common options:
-    --model {0,1,2}    Window: 0=fast(256), 1=medium(1024), 2=slow(4096)  (default: 2)
-    --tree N           Tree index 0-31 (default: 0)
-    --depth N          Max depth to render (default: 4)
-    --out FILE         Output PNG path (default: oif_tree.png)
+Options:
+    -i / --interactive    Prompt for model, tree, depth after loading pkl
+    --model {0,1,2}       Window: 0=fast(256), 1=medium(1024), 2=slow(4096)  (default: 2)
+    --tree N              Tree index 0-31 (default: 0)
+    --depth N             Max depth to render (default: 4)
+    --out FILE            Output PNG path (default: oif_tree.png)
 
-Requires: pip install graphviz
+Requires: pip install graphviz scikit-learn numpy
           sudo dnf install graphviz   (or apt/brew equivalent)
 For live mode also: pip install requests
 """
@@ -44,11 +47,60 @@ COL_EDGE_L       = "#52b788"
 COL_EDGE_R       = "#e63946"
 
 
-# ── pkl loading ──────────────────────────────────────────────────────────────
+# ── interactive selection ─────────────────────────────────────────────────────
 
-def load_from_pkl(pkl_path: str, model: int, tree: int, max_depth: int) -> dict:
-    """Unpickle a MultiWindowOIF and extract a tree snapshot dict."""
-    # Make inference/ importable so pickle can resolve class definitions
+def _ask(prompt: str, default, cast, validate):
+    while True:
+        raw = input(prompt).strip()
+        if raw == "":
+            return default
+        try:
+            val = cast(raw)
+            if validate(val):
+                return val
+        except (ValueError, TypeError):
+            pass
+        print(f"  → invalid input")
+
+
+def interactive_select(det) -> tuple[int, int, int]:
+    """Print ensemble summary and prompt for model / tree / depth."""
+    print()
+    print("── Ensemble models ──────────────────────────────────────────")
+    for i, (w, oif) in enumerate(zip(det._WINDOWS, det._models)):
+        n = len(oif._window)
+        pct = min(100, int(n / w * 100))
+        bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+        print(f"  [{i}] {WINDOW_LABELS[i]:20s}  n={n:4d}/{w}  [{bar}] {pct:3d}%")
+    print()
+
+    model = _ask(
+        "Select model [0/1/2] (default: 2): ",
+        default=2, cast=int, validate=lambda v: v in (0, 1, 2),
+    )
+
+    n_trees = len(det._models[model]._trees)
+    print(f"\n── Trees in model {model}: 0 – {n_trees - 1} ─────────────────────────")
+
+    tree = _ask(
+        f"Select tree index (default: 0): ",
+        default=0, cast=int, validate=lambda v: 0 <= v < n_trees,
+    )
+
+    print("\n── Depth ────────────────────────────────────────────────────")
+    depth = _ask(
+        "Max depth to render [1–8] (default: 4): ",
+        default=4, cast=int, validate=lambda v: 1 <= v <= 8,
+    )
+
+    print()
+    return model, tree, depth
+
+
+# ── pkl loading ───────────────────────────────────────────────────────────────
+
+def load_from_pkl(pkl_path: str, model: int, tree: int, max_depth: int,
+                  interactive: bool = False) -> dict:
     repo_root = Path(__file__).resolve().parent.parent
     inf_dir   = str(repo_root / "inference")
     if inf_dir not in sys.path:
@@ -57,13 +109,16 @@ def load_from_pkl(pkl_path: str, model: int, tree: int, max_depth: int) -> dict:
     with open(pkl_path, "rb") as f:
         det = pickle.load(f)
 
+    if interactive:
+        model, tree, max_depth = interactive_select(det)
+
     oif = det._models[model]
     if tree >= len(oif._trees):
         sys.exit(f"tree {tree} out of range (n_trees={len(oif._trees)})")
 
     t = oif._trees[tree]
     if t._root < 0:
-        sys.exit("Tree not initialised — pkl was saved before baseline completed")
+        sys.exit("Tree not initialised — pkl saved before baseline completed")
 
     feat_names = oif.feature_names
 
@@ -85,8 +140,7 @@ def load_from_pkl(pkl_path: str, model: int, tree: int, max_depth: int) -> dict:
             "right":     _dump(int(t._right[node_id])),
         }
 
-    # Infer protocol from filename
-    stem  = Path(pkl_path).stem            # e.g. "tcp_oif"
+    stem  = Path(pkl_path).stem
     proto = "TCP" if "tcp" in stem.lower() else "UDP"
 
     return {
@@ -193,6 +247,8 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--pkl",   default=None,
                    help="Path to tcp_oif.pkl or udp_oif.pkl (no app needed)")
+    p.add_argument("-i", "--interactive", action="store_true",
+                   help="Prompt for model/tree/depth after loading pkl")
     p.add_argument("--host",  default="localhost")
     p.add_argument("--port",  default=8765, type=int)
     p.add_argument("--key",   default=os.environ.get("CORVUS_API_KEY", ""))
@@ -205,9 +261,13 @@ def main() -> None:
     args = p.parse_args()
 
     if args.pkl:
-        print(f"Loading {args.pkl} — model={WINDOW_LABELS[args.model]}, "
-              f"tree={args.tree}, depth≤{args.depth} …")
-        snapshot = load_from_pkl(args.pkl, args.model, args.tree, args.depth)
+        if not args.interactive:
+            print(f"Loading {args.pkl} — model={WINDOW_LABELS[args.model]}, "
+                  f"tree={args.tree}, depth≤{args.depth} …")
+        snapshot = load_from_pkl(
+            args.pkl, args.model, args.tree, args.depth,
+            interactive=args.interactive,
+        )
     else:
         print(f"Fetching {args.proto} tree #{args.tree} "
               f"(model={WINDOW_LABELS[args.model]}, depth≤{args.depth}) …")
