@@ -80,11 +80,15 @@ function NodeEl({ nodeDatum }: CustomNodeElementProps) {
   const thr      = String(nodeDatum.attributes?.thr ?? '')
   const branchColor = branch === '≤' ? C.branchL : branch === '>' ? C.branchR : 'transparent'
 
+  const tx: React.CSSProperties = {
+    stroke: 'none', fontFamily: 'Inter, ui-sans-serif, sans-serif',
+  }
+
   return (
     <g>
       {branch !== '' && (
         <text y={-30} textAnchor="middle" fontSize={9} fontWeight="700"
-          style={{ fill: branchColor }}>
+          style={{ ...tx, fill: branchColor }}>
           {branch}
         </text>
       )}
@@ -93,22 +97,22 @@ function NodeEl({ nodeDatum }: CustomNodeElementProps) {
           <rect x={-38} y={-20} width={76} height={40} rx={5}
             style={{ fill: C.leafFill, stroke: C.leafStroke, strokeWidth: 1.5 }} />
           <text y={-5} textAnchor="middle" fontSize={10} fontWeight="700"
-            style={{ fill: C.leafStroke }}>leaf</text>
+            style={{ ...tx, fill: C.leafStroke }}>leaf</text>
           <text y={10} textAnchor="middle" fontSize={9}
-            style={{ fill: C.muted }}>n = {n}</text>
+            style={{ ...tx, fill: C.muted }}>n = {n}</text>
         </>
       ) : (
         <>
           <rect x={-54} y={-28} width={108} height={56} rx={5}
             style={{ fill: C.splitFill, stroke: C.splitStroke, strokeWidth: 1.5 }} />
           <text y={-12} textAnchor="middle" fontSize={10} fontWeight="700"
-            style={{ fill: C.text }}>
+            style={{ ...tx, fill: C.text }}>
             {nodeDatum.name}
           </text>
           <text y={2} textAnchor="middle" fontSize={9}
-            style={{ fill: C.splitStroke }}>≤ {thr}</text>
+            style={{ ...tx, fill: C.splitStroke }}>≤ {thr}</text>
           <text y={17} textAnchor="middle" fontSize={8}
-            style={{ fill: C.muted }}>n = {n}</text>
+            style={{ ...tx, fill: C.muted }}>n = {n}</text>
         </>
       )}
     </g>
