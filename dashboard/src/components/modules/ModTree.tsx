@@ -83,26 +83,32 @@ function NodeEl({ nodeDatum }: CustomNodeElementProps) {
   return (
     <g>
       {branch !== '' && (
-        <text y={-30} textAnchor="middle" fontSize={9} fontWeight="700" fill={branchColor}>
+        <text y={-30} textAnchor="middle" fontSize={9} fontWeight="700"
+          style={{ fill: branchColor }}>
           {branch}
         </text>
       )}
       {isLeaf ? (
         <>
           <rect x={-38} y={-20} width={76} height={40} rx={5}
-            fill={C.leafFill} stroke={C.leafStroke} strokeWidth={1.5} />
-          <text y={-5} textAnchor="middle" fontSize={10} fontWeight="700" fill={C.leafStroke}>leaf</text>
-          <text y={10} textAnchor="middle" fontSize={9} fill={C.muted}>n = {n}</text>
+            style={{ fill: C.leafFill, stroke: C.leafStroke, strokeWidth: 1.5 }} />
+          <text y={-5} textAnchor="middle" fontSize={10} fontWeight="700"
+            style={{ fill: C.leafStroke }}>leaf</text>
+          <text y={10} textAnchor="middle" fontSize={9}
+            style={{ fill: C.muted }}>n = {n}</text>
         </>
       ) : (
         <>
           <rect x={-54} y={-28} width={108} height={56} rx={5}
-            fill={C.splitFill} stroke={C.splitStroke} strokeWidth={1.5} />
-          <text y={-12} textAnchor="middle" fontSize={10} fontWeight="700" fill={C.text}>
+            style={{ fill: C.splitFill, stroke: C.splitStroke, strokeWidth: 1.5 }} />
+          <text y={-12} textAnchor="middle" fontSize={10} fontWeight="700"
+            style={{ fill: C.text }}>
             {nodeDatum.name}
           </text>
-          <text y={2} textAnchor="middle" fontSize={9} fill={C.splitStroke}>≤ {thr}</text>
-          <text y={17} textAnchor="middle" fontSize={8} fill={C.muted}>n = {n}</text>
+          <text y={2} textAnchor="middle" fontSize={9}
+            style={{ fill: C.splitStroke }}>≤ {thr}</text>
+          <text y={17} textAnchor="middle" fontSize={8}
+            style={{ fill: C.muted }}>n = {n}</text>
         </>
       )}
     </g>
