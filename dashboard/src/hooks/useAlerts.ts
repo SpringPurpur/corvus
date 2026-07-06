@@ -93,7 +93,6 @@ export function useAlerts(): UseAlertsReturn {
           ...s,
           tcp,
           udp,
-          baselining: false,
         }))
       })
       .catch(() => {

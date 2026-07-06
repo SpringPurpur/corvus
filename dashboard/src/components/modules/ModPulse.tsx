@@ -25,13 +25,21 @@ export function ModPulse({ alerts }: Props) {
   const latestTsRef = useRef(latestTs)
   latestTsRef.current = latestTs
 
+  // Single AbortController across all fetchHistory calls — cancels any in-flight
+  // request before starting a new one, preventing concurrent fetches from racing.
+  const abortRef = useRef<AbortController | null>(null)
+
   // Fetch TCP + UDP histories in parallel and merge by timestamp bucket,
   // taking the max peak so the chart reflects the worst-case score across
   // both protocols at every point in time.
-  const fetchHistory = (since: number) =>
-    Promise.all([
-      apiFetch(`/window_history?proto=TCP&bucket=30&since=${since}`).then(r => r.json()),
-      apiFetch(`/window_history?proto=UDP&bucket=30&since=${since}`).then(r => r.json()),
+  const fetchHistory = (since: number) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const signal = controller.signal
+    return Promise.all([
+      apiFetch(`/window_history?proto=TCP&bucket=30&since=${since}`, { signal }).then(r => r.json()),
+      apiFetch(`/window_history?proto=UDP&bucket=30&since=${since}`, { signal }).then(r => r.json()),
     ]).then(([tcp, udp]: [WindowBucket[], WindowBucket[]]) => {
       const map = new Map<number, WindowBucket>()
       for (const b of tcp) map.set(b.ts, b)
@@ -46,14 +54,15 @@ export function ModPulse({ alerts }: Props) {
         } : b)
       }
       setHistory([...map.values()].sort((a, b) => a.ts - b.ts))
-    })
+    }).catch(e => { if (e.name !== 'AbortError') throw e })
+  }
 
   // Primary history fetch + 30 s refresh interval
   useEffect(() => {
     const load = () => fetchHistory(latestTsRef.current - 3600).catch(() => {})
     load()
     const id = setInterval(load, 30_000)
-    return () => clearInterval(id)
+    return () => { clearInterval(id); abortRef.current?.abort() }
   }, [])
 
   // One-shot re-fetch once DB history loads: latestTs may have jumped far into

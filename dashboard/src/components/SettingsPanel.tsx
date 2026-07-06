@@ -142,10 +142,12 @@ export function SettingsPanel({ onClose }: Props) {
 
   // Load current config from inference engine on open
   useEffect(() => {
-    apiFetch('/config')
+    const controller = new AbortController()
+    apiFetch('/config', { signal: controller.signal })
       .then((r) => r.json())
       .then((data: AppConfig) => setCfg(data))
-      .catch(() => { /* leave defaults */ })
+      .catch(e => { if (e.name !== 'AbortError') { /* leave defaults */ } })
+    return () => controller.abort()
   }, [])
 
   // Load capture interfaces once (lazy - only when panel is open)
