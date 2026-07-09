@@ -46,6 +46,6 @@ inference/_array_tree.html
 build/
 
 # IDE
-.vscode/settings.json
+.vscode/
 .idea/
 *.swp
