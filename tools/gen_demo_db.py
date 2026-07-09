@@ -293,12 +293,18 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():
-        out.unlink()
-        print(f"Removed existing {out}")
 
+    # Connect before dropping so the file inode is reused — avoids the
+    # stale-fd bug where a running inference container holds an fd to the
+    # old inode while new reads open the replacement file.
     conn = sqlite3.connect(str(out))
     conn.executescript("""
+        DROP TABLE IF EXISTS flows;
+        DROP TABLE IF EXISTS phases;
+        DROP INDEX IF EXISTS idx_ts;
+        DROP INDEX IF EXISTS idx_src;
+        DROP INDEX IF EXISTS idx_proto;
+        DROP INDEX IF EXISTS idx_label;
         CREATE TABLE flows (
             id           INTEGER PRIMARY KEY,
             flow_id      TEXT    NOT NULL,
