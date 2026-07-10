@@ -502,11 +502,9 @@ function AppInner() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, flexWrap: 'wrap' }}>
-          {critCount > 0 && (
-            <span style={{ padding: '3px 9px', background: G3.critBg, borderRadius: 5, color: G3.crit, fontWeight: 600, whiteSpace: 'nowrap' }}>
-              {critCount} critical
-            </span>
-          )}
+          <span style={{ padding: '3px 9px', background: G3.critBg, borderRadius: 5, color: G3.crit, fontWeight: 600, whiteSpace: 'nowrap', visibility: critCount > 0 ? 'visible' : 'hidden' }}>
+            {critCount} critical
+          </span>
           <span style={{ padding: '3px 9px', background: G3.card2, borderRadius: 5, color: G3.mute2, display: 'inline-flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: connected ? G3.ok : G3.mute, display: 'inline-block' }} />
             {allAlerts.length} flows
